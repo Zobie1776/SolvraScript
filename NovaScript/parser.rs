@@ -980,4 +980,142 @@ fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
     }
 }
 
-                    
+    // Utility: peek at current token
+    fn peek(&self) -> &Token {
+        self.tokens.get(self.current).unwrap_or_else(|| self.tokens.last().unwrap())
+    }
+
+    // Utility: advance to next token and return previous
+    fn advance(&mut self) -> &Token {
+        if !self.is_at_end() {
+            self.current += 1;
+        }
+        self.tokens.get(self.current - 1).unwrap()
+    }
+
+    // Utility: check if current token matches kind
+    fn check(&self, kind: &TokenKind) -> bool {
+        if self.is_at_end() {
+            false
+        } else {
+            &self.peek().kind == kind
+        }
+    }
+
+    // Utility: consume token of expected kind, or error
+    fn consume(&mut self, kind: &TokenKind, msg: &str) -> Result<&Token, ParseError> {
+        if self.check(kind) {
+            Ok(self.advance())
+        } else {
+            Err(ParseError::UnexpectedToken {
+                expected: format!("{:?}", kind),
+                found: self.peek().kind.clone(),
+                position: self.peek().position.clone(),
+            })
+        }
+    }
+
+    // Utility: consume identifier and return its name
+    fn consume_identifier(&mut self, msg: &str) -> Result<String, ParseError> {
+        match &self.peek().kind {
+            TokenKind::Identifier(name) => {
+                let name = name.clone();
+                self.advance();
+                Ok(name)
+            }
+            _ => Err(ParseError::UnexpectedToken {
+                expected: "identifier".to_string(),
+                found: self.peek().kind.clone(),
+                position: self.peek().position.clone(),
+            }),
+        }
+    }
+
+    // Utility: consume statement terminator (semicolon or newline)
+    fn consume_statement_terminator(&mut self) -> Result<(), ParseError> {
+        if self.check(&TokenKind::Semicolon) || self.check(&TokenKind::Newline) {
+            self.advance();
+            Ok(())
+        } else {
+            // Allow EOF as statement terminator at end of input
+            if self.is_at_end() {
+                Ok(())
+            } else {
+                Err(ParseError::UnexpectedToken {
+                    expected: "statement terminator".to_string(),
+                    found: self.peek().kind.clone(),
+                    position: self.peek().position.clone(),
+                })
+            }
+        }
+    }
+
+    // Utility: are we at end of input?
+    fn is_at_end(&self) -> bool {
+        matches!(self.peek().kind, TokenKind::Eof)
+    }
+
+    // Utility: get current position
+    fn current_position(&self) -> Position {
+        self.peek().position.clone()
+    }
+
+    // Utility: match binary operator and return BinaryOp
+    fn match_binary_op(&mut self, kinds: &[TokenKind]) -> Option<BinaryOp> {
+        for kind in kinds {
+            if self.check(kind) {
+                self.advance();
+                return Some(match kind {
+                    TokenKind::Plus => BinaryOp::Add,
+                    TokenKind::Minus => BinaryOp::Subtract,
+                    TokenKind::Star => BinaryOp::Multiply,
+                    TokenKind::Slash => BinaryOp::Divide,
+                    TokenKind::Percent => BinaryOp::Modulo,
+                    TokenKind::EqualEqual => BinaryOp::Equal,
+                    TokenKind::NotEqual => BinaryOp::NotEqual,
+                    TokenKind::Less => BinaryOp::Less,
+                    TokenKind::Greater => BinaryOp::Greater,
+                    TokenKind::LessEqual => BinaryOp::LessEqual,
+                    TokenKind::GreaterEqual => BinaryOp::GreaterEqual,
+                    TokenKind::And => BinaryOp::And,
+                    TokenKind::Or => BinaryOp::Or,
+                    _ => continue,
+                });
+            }
+        }
+        None
+    }
+
+    // Utility: match unary operator and return UnaryOp
+    fn match_unary_op(&mut self, kinds: &[TokenKind]) -> Option<UnaryOp> {
+        for kind in kinds {
+            if self.check(kind) {
+                self.advance();
+                return Some(match kind {
+                    TokenKind::Not => UnaryOp::Not,
+                    TokenKind::Minus => UnaryOp::Minus,
+                    TokenKind::Plus => UnaryOp::Plus,
+                    _ => continue,
+                });
+            }
+        }
+        None
+    }
+
+    // Utility: parse type annotation (stub for now)
+    fn parse_type(&mut self) -> Result<Type, ParseError> {
+        // Accept int, float, string, bool, or identifier as type
+        match &self.peek().kind {
+            TokenKind::IntType => { self.advance(); Ok(Type::Int) }
+            TokenKind::FloatType => { self.advance(); Ok(Type::Float) }
+            TokenKind::StringType => { self.advance(); Ok(Type::String) }
+            TokenKind::BoolType => { self.advance(); Ok(Type::Bool) }
+            TokenKind::Identifier(name) => {
+                let name = name.clone();
+                self.advance();
+                Ok(Type::Custom(name))
+            }
+            _ => Ok(Type::Inferred),
+        }
+    }
+

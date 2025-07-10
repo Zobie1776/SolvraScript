@@ -73,7 +73,7 @@ pub enum TokenKind {
     And,
     Or,
     Not,
-    
+
     // Delimiters
     LeftParen,
     RightParen,
@@ -86,20 +86,24 @@ pub enum TokenKind {
     Colon,
     Arrow,
     Dot,
-    
+
     // Special
     Newline,
     Indent,
     Dedent,
     Eof,
-    
+
     // String interpolation
     StringInterpolationStart,
     StringInterpolationEnd,
-    StringTemplate(String),  // Added missing StringTemplate variant
-    
-    // Comments (for documentation/debugging)
+    StringTemplate(String), // Used for template strings (backticks)
+
+    // Comments
     Comment(String),
+
+    // Add missing variants for parser compatibility
+    // Used in parser for if-expr sugar
+    Then,
 }
 
 impl fmt::Display for TokenKind {
@@ -173,6 +177,7 @@ impl Tokenizer {
         keywords.insert("float".to_string(), TokenKind::FloatType);
         keywords.insert("string".to_string(), TokenKind::StringType);
         keywords.insert("bool".to_string(), TokenKind::BoolType);
+        keywords.insert("then".to_string(), TokenKind::Then); // Add for if-expr
 
         Self {
             input: input.chars().collect(),

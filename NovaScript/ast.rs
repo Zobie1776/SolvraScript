@@ -90,7 +90,7 @@ pub enum Literal {
     Boolean(bool),
     Null,
     Array(Vec<Expr>),
-    Object(HashMap<String, Expr>),
+    Object(Vec<(String, Expr)>), // Changed from HashMap for parser compatibility
 }
 
 /// Expressions in NovaScript
@@ -130,13 +130,13 @@ pub enum Expr {
         property: String,
         position: Position,
     },
+    // Add string interpolation and template if referenced
     StringInterpolation {
         parts: Vec<StringPart>,
         position: Position,
     },
     StringTemplate {
-        template: String,
-        expressions: Vec<Expr>,
+        parts: Vec<StringPart>,
         position: Position,
     },
     Assignment {
@@ -145,7 +145,7 @@ pub enum Expr {
         position: Position,
     },
     Lambda {
-        params: Vec<Parameter>,
+        params: Vec<String>,
         body: Box<Expr>,
         position: Position,
     },
@@ -231,9 +231,8 @@ pub enum Pattern {
     Literal(Literal),
     Identifier(String),
     Wildcard,
-    Array(Vec<Pattern>),
     List(Vec<Pattern>),
-    Object(HashMap<String, Pattern>),
+    Object(Vec<(String, Pattern)>),
     Tuple(Vec<Pattern>),
     Constructor {
         name: String,
@@ -263,7 +262,6 @@ pub struct Parameter {
     pub name: String,
     pub param_type: Type,
     pub default_value: Option<Expr>,
-    pub is_variadic: bool,
     pub position: Position,
 }
 
@@ -273,7 +271,6 @@ pub struct VariableDecl {
     pub name: String,
     pub var_type: Type,
     pub is_mutable: bool,
-    pub is_constant: bool,
     pub initializer: Option<Expr>,
     pub position: Position,
 }
@@ -286,8 +283,6 @@ pub struct FunctionDecl {
     pub return_type: Type,
     pub body: Vec<Stmt>,
     pub is_async: bool,
-    pub is_generator: bool,
-    pub visibility: Visibility,
     pub position: Position,
 }
 
@@ -753,7 +748,7 @@ impl Expr {
         }
     }
 
-    pub fn lambda(params: Vec<Parameter>, body: Expr, position: Position) -> Self {
+    pub fn lambda(params: Vec<String>, body: Expr, position: Position) -> Self {
         Expr::Lambda {
             params,
             body: Box::new(body),
@@ -973,7 +968,6 @@ mod tests {
             name: "x".to_string(),
             param_type: Type::Int,
             default_value: None,
-            is_variadic: false,
             position: pos.clone(),
         };
         
@@ -983,7 +977,6 @@ mod tests {
             return_type: Type::Int,
             body: vec![],
             is_async: false,
-            is_generator: false,
             visibility: Visibility::Public,
             position: pos.clone(),
         };
@@ -992,7 +985,6 @@ mod tests {
         assert_eq!(func_decl.params.len(), 1);
         assert_eq!(func_decl.return_type, Type::Int);
         assert!(!func_decl.is_async);
-        assert!(!func_decl.is_generator);
     }
 
     #[test]
@@ -1003,7 +995,6 @@ mod tests {
             name: "x".to_string(),
             var_type: Type::Int,
             is_mutable: false,
-            is_constant: false,
             initializer: Some(Expr::literal(Literal::Integer(42), pos.clone())),
             position: pos.clone(),
         };
@@ -1011,7 +1002,6 @@ mod tests {
         assert_eq!(var_decl.name, "x");
         assert_eq!(var_decl.var_type, Type::Int);
         assert!(!var_decl.is_mutable);
-        assert!(!var_decl.is_constant);
         assert!(var_decl.initializer.is_some());
     }
 
@@ -1111,7 +1101,6 @@ mod tests {
             return_type: Type::Inferred,
             body: vec![],
             is_async: false,
-            is_generator: false,
             visibility: Visibility::Public,
             position: pos.clone(),
         };
@@ -1120,7 +1109,6 @@ mod tests {
             name: "x".to_string(),
             var_type: Type::Int,
             is_mutable: false,
-            is_constant: false,
             initializer: None,
             position: pos.clone(),
         };
@@ -1310,18 +1298,12 @@ impl Parameter {
             name,
             param_type,
             default_value: None,
-            is_variadic: false,
             position,
         }
     }
 
     pub fn with_default(mut self, default_value: Expr) -> Self {
         self.default_value = Some(default_value);
-        self
-    }
-
-    pub fn variadic(mut self) -> Self {
-        self.is_variadic = true;
         self
     }
 }
@@ -1332,7 +1314,6 @@ impl VariableDecl {
             name,
             var_type,
             is_mutable: false,
-            is_constant: false,
             initializer: None,
             position,
         }
@@ -1340,11 +1321,6 @@ impl VariableDecl {
 
     pub fn mutable(mut self) -> Self {
         self.is_mutable = true;
-        self
-    }
-
-    pub fn constant(mut self) -> Self {
-        self.is_constant = true;
         self
     }
 
@@ -1362,7 +1338,6 @@ impl FunctionDecl {
             return_type,
             body: vec![],
             is_async: false,
-            is_generator: false,
             visibility: Visibility::Private,
             position,
         }
@@ -1380,11 +1355,6 @@ impl FunctionDecl {
 
     pub fn async_fn(mut self) -> Self {
         self.is_async = true;
-        self
-    }
-
-    pub fn generator(mut self) -> Self {
-        self.is_generator = true;
         self
     }
 
