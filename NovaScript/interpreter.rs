@@ -290,59 +290,39 @@ impl Interpreter {
                 result
             }
 
-            Stmt::For { init, condition, update, body, .. } => {
-                self.push_scope();
-                
-                // Initialize
-                if let Some(init_stmt) = init {
-                    self.eval_stmt(init_stmt)?;
-                }
-                
-                let mut result = Ok(None);
-                loop {
-                    // Check condition
-                    if let Some(cond_expr) = condition {
-                        let cond_val = self.eval_expr(cond_expr)?;
-                        if !cond_val.is_truthy() {
-                            break;
-                        }
-                    }
-                    
-                    // Execute body
-                    match self.eval_stmt(body) {
-                        Ok(val) => result = Ok(val),
-                        Err(RuntimeError::Break) => break,
-                        Err(RuntimeError::Continue) => {
-                            // Still need to execute update
-                        }
-                        Err(RuntimeError::Return(val)) => {
+            Stmt::For { variable, iterable, body, .. } => {
+                let iterable_val = self.eval_expr(iterable)?;
+                match iterable_val {
+                    Value::Array(elements) => {
+                        let mut result = Ok(None);
+                        for item in elements {
+                            self.push_scope();
+                            self.set_variable(variable.clone(), item);
+                            match self.eval_stmt(body) {
+                                Ok(val) => result = Ok(val),
+                                Err(RuntimeError::Break) => { self.pop_scope(); break; }
+                                Err(RuntimeError::Continue) => { self.pop_scope(); continue; }
+                                Err(RuntimeError::Return(v)) => { self.pop_scope(); return Err(RuntimeError::Return(v)); }
+                                Err(e) => { self.pop_scope(); return Err(e); }
+                            }
                             self.pop_scope();
-                            return Err(RuntimeError::Return(val));
                         }
-                        Err(e) => {
-                            self.pop_scope();
-                            return Err(e);
-                        }
+                        result
                     }
-                    
-                    // Update
-                    if let Some(update_expr) = update {
-                        self.eval_expr(update_expr)?;
-                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Value of type '{}' is not iterable", iterable_val.type_name())
+                    )),
                 }
-                
-                self.pop_scope();
-                result
             }
 
-            Stmt::FunctionDecl { name, params, body, .. } => {
+            Stmt::FunctionDecl { decl } => {
                 let func = Value::Function {
-                    name: name.clone(),
-                    params: params.clone(),
-                    body: body.clone(),
+                    name: decl.name.clone(),
+                    params: decl.params.iter().map(|p| p.name.clone()).collect(),
+                    body: decl.body.clone(),
                     closure: self.capture_environment(),
                 };
-                self.set_variable(name.clone(), func);
+                self.set_variable(decl.name.clone(), func);
                 Ok(None)
             }
 
@@ -370,10 +350,14 @@ impl Interpreter {
                 self.eval_unary_op(operator, v)
             }
 
-            Expr::Assignment { name, value, .. } => {
-                let val = self.eval_expr(value)?;
-                self.set_variable(name.clone(), val.clone());
-                Ok(val)
+            Expr::Assignment { target, value, .. } => {
+                if let Expr::Identifier { name, .. } = &**target {
+                    let val = self.eval_expr(value)?;
+                    self.set_variable(name.clone(), val.clone());
+                    Ok(val)
+                } else {
+                    Err(RuntimeError::TypeError("Invalid assignment target".to_string()))
+                }
             }
 
             Expr::Call { callee, args, .. } => {
@@ -395,10 +379,9 @@ impl Interpreter {
                 let obj = self.eval_expr(object)?;
                 match obj {
                     Value::Object(map) => {
-                        map.get(property)
+                        Ok(map.get(property)
                             .cloned()
-                            .unwrap_or(Value::Null)
-                            .into()
+                            .unwrap_or(Value::Null))
                     }
                     _ => Err(RuntimeError::TypeError(
                         format!("Cannot access property '{}' on {}", property, obj.type_name())
@@ -521,8 +504,8 @@ impl Interpreter {
             (Neg, Int(n)) => Ok(Int(-n)),
             (Neg, Float(f)) => Ok(Float(-f)),
             (Not, val) => Ok(Bool(!val.is_truthy())),
-            _ => Err(RuntimeError::TypeError(
-                format!("Unary operation {:?} not supported for {}", op, operand.type_name())
+            (_, val) => Err(RuntimeError::TypeError(
+                format!("Unary operation {:?} not supported for {}", op, val.type_name())
             )),
         }
     }
