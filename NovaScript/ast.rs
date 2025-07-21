@@ -283,6 +283,7 @@ pub struct FunctionDecl {
     pub return_type: Type,
     pub body: Vec<Stmt>,
     pub is_async: bool,
+    pub visibility: Visibility,
     pub position: Position,
 }
 
@@ -952,9 +953,9 @@ mod tests {
         let binary = Expr::binary(left, BinaryOp::Add, right, pos.clone());
         
         if let Expr::Binary { left, operator, right, .. } = binary {
-            assert!(matches!(**left, Expr::Literal { value: Literal::Integer(5), .. }));
+            assert!(matches!(*left, Expr::Literal { value: Literal::Integer(5), .. }));
             assert_eq!(operator, BinaryOp::Add);
-            assert!(matches!(**right, Expr::Literal { value: Literal::Integer(3), .. }));
+            assert!(matches!(*right, Expr::Literal { value: Literal::Integer(3), .. }));
         } else {
             panic!("Expected binary expression");
         }
@@ -1137,7 +1138,7 @@ mod tests {
         let bool_lit = Literal::Boolean(true);
         let null_lit = Literal::Null;
         let array_lit = Literal::Array(vec![]);
-        let object_lit = Literal::Object(HashMap::new());
+        let object_lit = Literal::Object(Vec::new());
         
         assert!(matches!(int_lit, Literal::Integer(42)));
         assert!(matches!(float_lit, Literal::Float(f) if (f - 3.14).abs() < f64::EPSILON));
@@ -1153,17 +1154,15 @@ mod tests {
         let int_pattern = Pattern::Literal(Literal::Integer(42));
         let id_pattern = Pattern::Identifier("x".to_string());
         let wildcard_pattern = Pattern::Wildcard;
-        let array_pattern = Pattern::Array(vec![]);
         let list_pattern = Pattern::List(vec![]);
-        let object_pattern = Pattern::Object(HashMap::new());
+        let object_pattern = Pattern::Object(Vec::new());
         let tuple_pattern = Pattern::Tuple(vec![]);
         
         assert!(matches!(int_pattern, Pattern::Literal(Literal::Integer(42))));
         assert!(matches!(id_pattern, Pattern::Identifier(ref s) if s == "x"));
         assert!(matches!(wildcard_pattern, Pattern::Wildcard));
-        assert!(matches!(array_pattern, Pattern::Array(_)));
         assert!(matches!(list_pattern, Pattern::List(_)));
-        assert!(matches!(object_pattern, Pattern::Object(_)));
+        assert!(matches!(object_pattern, Pattern::Object(_))); 
         assert!(matches!(tuple_pattern, Pattern::Tuple(_)));
     }
 

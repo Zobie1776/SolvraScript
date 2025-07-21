@@ -1,7 +1,8 @@
 use crate::tokenizer::{Token, TokenKind, Position};
 use crate::ast::{
-    Expr, Stmt, Type, BinaryOp, UnaryOp, Literal, Pattern, MatchArm, Parameter, 
-    VariableDecl, FunctionDecl, ImportDecl, CatchBlock, Program, StringPart
+    Expr, Stmt, Type, BinaryOp, UnaryOp, Literal, Pattern, MatchArm, Parameter,
+    VariableDecl, FunctionDecl, ImportDecl, CatchBlock, Program, StringPart,
+    Visibility
 };
 
 /// Parser error types
@@ -197,6 +198,7 @@ impl Parser {
             return_type,
             body,
             is_async,
+            visibility: Visibility::Private,
             position: start_pos,
         };
 
@@ -313,6 +315,7 @@ impl Parser {
         self.consume_statement_terminator()?;
 
         Ok(Stmt::Break {
+            label: None,
             position: start_pos,
         })
     }
@@ -324,6 +327,7 @@ impl Parser {
         self.consume_statement_terminator()?;
 
         Ok(Stmt::Continue {
+            label: None,
             position: start_pos,
         })
     }
@@ -663,7 +667,7 @@ impl Parser {
 
     /// Parse primary expression: literals, identifiers, parenthesized expressions
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
-        let token = self.peek();
+        let token = self.peek().clone();
         let position = token.position.clone();
 
         match &token.kind {
@@ -688,10 +692,10 @@ impl Parser {
                     position,
                 })
             }
-            TokenKind::StringTemplate(parts) => {
+            TokenKind::StringTemplate(s) => {
                 self.advance();
                 Ok(Expr::StringTemplate {
-                    parts: parts.clone(),
+                    parts: vec![StringPart::Literal(s.clone())],
                     position,
                 })
             }
@@ -859,7 +863,7 @@ impl Parser {
 
         let else_expr = Box::new(self.parse_expression()?);
 
-        Ok(Expr::If {
+        Ok(Expr::Conditional {
             condition,
             then_expr,
             else_expr,
@@ -899,7 +903,7 @@ impl Parser {
 
     /// Parse pattern for match expressions
 fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
-    let token = self.peek();
+    let token = self.peek().clone();
 
     match &token.kind {
         TokenKind::Integer(n) => {
@@ -971,7 +975,6 @@ fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
             self.consume(&TokenKind::RightBrace, "Expected '}' after object pattern")?;
             Ok(Pattern::Object(fields))
         }
-    }        
         _ => Err(ParseError::UnexpectedToken {
             expected: "pattern".to_string(),
             found: token.kind.clone(),
@@ -1119,3 +1122,4 @@ fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
         }
     }
 
+}
