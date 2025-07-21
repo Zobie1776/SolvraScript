@@ -283,6 +283,7 @@ pub struct FunctionDecl {
     pub return_type: Type,
     pub body: Vec<Stmt>,
     pub is_async: bool,
+    pub visibility: Visibility,
     pub position: Position,
 }
 
@@ -947,11 +948,20 @@ mod tests {
         // Test binary expression creation and matching
         let left = Expr::literal(Literal::Integer(5), pos.clone());
         let right = Expr::literal(Literal::Integer(3), pos.clone());
+<<<<<<< HEAD
         let binary = Expr::binary(left.clone(), BinaryOp::Add, right.clone(), pos.clone());
         if let Expr::Binary { left: l, operator, right: r, .. } = binary {
             assert!(matches!(*l, Expr::Literal { value: Literal::Integer(5), .. }));
             assert_eq!(operator, BinaryOp::Add);
             assert!(matches!(*r, Expr::Literal { value: Literal::Integer(3), .. }));
+=======
+        let binary = Expr::binary(left, BinaryOp::Add, right, pos.clone());
+        
+        if let Expr::Binary { left, operator, right, .. } = binary {
+            assert!(matches!(*left, Expr::Literal { value: Literal::Integer(5), .. }));
+            assert_eq!(operator, BinaryOp::Add);
+            assert!(matches!(*right, Expr::Literal { value: Literal::Integer(3), .. }));
+>>>>>>> a68d2cfc32a52279e67300148c60b4ddc9b0bea2
         } else {
             panic!("Expected binary expression");
         }
@@ -1118,7 +1128,12 @@ mod tests {
         let bool_lit = Literal::Boolean(true);
         let null_lit = Literal::Null;
         let array_lit = Literal::Array(vec![]);
+<<<<<<< HEAD
         let object_lit = Literal::Object(vec![]); // Use Vec, not HashMap
+=======
+        let object_lit = Literal::Object(Vec::new());
+        
+>>>>>>> a68d2cfc32a52279e67300148c60b4ddc9b0bea2
         assert!(matches!(int_lit, Literal::Integer(42)));
         assert!(matches!(float_lit, Literal::Float(f) if (f - 3.14).abs() < f64::EPSILON));
         assert!(matches!(string_lit, Literal::String(ref s) if s == "hello"));
@@ -1135,13 +1150,17 @@ mod tests {
         let id_pattern = Pattern::Identifier("x".to_string());
         let wildcard_pattern = Pattern::Wildcard;
         let list_pattern = Pattern::List(vec![]);
+<<<<<<< HEAD
         let object_pattern = Pattern::Object(vec![]); // Use Vec, not HashMap
+=======
+        let object_pattern = Pattern::Object(Vec::new());
+>>>>>>> a68d2cfc32a52279e67300148c60b4ddc9b0bea2
         let tuple_pattern = Pattern::Tuple(vec![]);
         assert!(matches!(int_pattern, Pattern::Literal(Literal::Integer(42))));
         assert!(matches!(id_pattern, Pattern::Identifier(ref s) if s == "x"));
         assert!(matches!(wildcard_pattern, Pattern::Wildcard));
         assert!(matches!(list_pattern, Pattern::List(_)));
-        assert!(matches!(object_pattern, Pattern::Object(_)));
+        assert!(matches!(object_pattern, Pattern::Object(_))); 
         assert!(matches!(tuple_pattern, Pattern::Tuple(_)));
     }
 

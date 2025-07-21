@@ -3,6 +3,9 @@ mod parser;
 mod ast;
 mod interpreter;
 
+use crate::tokenizer::Tokenizer;
+use crate::parser::Parser;
+
 use std::fs;
 use std::env;
 use std::process;

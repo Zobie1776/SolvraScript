@@ -291,6 +291,7 @@ impl Interpreter {
             }
 
             Stmt::For { variable, iterable, body, .. } => {
+<<<<<<< HEAD
                 // For loop: for variable in iterable { body }
                 let iter_val = self.eval_expr(iterable)?;
                 if let Value::Array(arr) = iter_val {
@@ -307,6 +308,29 @@ impl Interpreter {
                     Ok(None)
                 } else {
                     Err(RuntimeError::TypeError("For loop expects iterable array".to_string()))
+=======
+                let iterable_val = self.eval_expr(iterable)?;
+                match iterable_val {
+                    Value::Array(elements) => {
+                        let mut result = Ok(None);
+                        for item in elements {
+                            self.push_scope();
+                            self.set_variable(variable.clone(), item);
+                            match self.eval_stmt(body) {
+                                Ok(val) => result = Ok(val),
+                                Err(RuntimeError::Break) => { self.pop_scope(); break; }
+                                Err(RuntimeError::Continue) => { self.pop_scope(); continue; }
+                                Err(RuntimeError::Return(v)) => { self.pop_scope(); return Err(RuntimeError::Return(v)); }
+                                Err(e) => { self.pop_scope(); return Err(e); }
+                            }
+                            self.pop_scope();
+                        }
+                        result
+                    }
+                    _ => Err(RuntimeError::TypeError(
+                        format!("Value of type '{}' is not iterable", iterable_val.type_name())
+                    )),
+>>>>>>> a68d2cfc32a52279e67300148c60b4ddc9b0bea2
                 }
             }
 
@@ -341,8 +365,13 @@ impl Interpreter {
                 let v = self.eval_expr(operand)?;
                 self.eval_unary_op(operator, v)
             }
+<<<<<<< HEAD
             Expr::Assignment { target, value, .. } => {
                 // Only support identifier assignment for now
+=======
+
+            Expr::Assignment { target, value, .. } => {
+>>>>>>> a68d2cfc32a52279e67300148c60b4ddc9b0bea2
                 if let Expr::Identifier { name, .. } = &**target {
                     let val = self.eval_expr(value)?;
                     self.set_variable(name.clone(), val.clone());
@@ -481,6 +510,7 @@ impl Interpreter {
     fn eval_unary_op(&self, op: &UnaryOp, operand: Value) -> Result<Value, RuntimeError> {
         use UnaryOp::*;
         use Value::*;
+<<<<<<< HEAD
         match op {
             Minus => match operand {
                 Int(n) => Ok(Int(-n)),
@@ -497,6 +527,16 @@ impl Interpreter {
                 Int(n) => Ok(Int(!n)),
                 _ => Err(RuntimeError::TypeError(format!("Bitwise not not supported for {}", operand.type_name()))),
             },
+=======
+        
+        match (op, operand) {
+            (Neg, Int(n)) => Ok(Int(-n)),
+            (Neg, Float(f)) => Ok(Float(-f)),
+            (Not, val) => Ok(Bool(!val.is_truthy())),
+            (_, val) => Err(RuntimeError::TypeError(
+                format!("Unary operation {:?} not supported for {}", op, val.type_name())
+            )),
+>>>>>>> a68d2cfc32a52279e67300148c60b4ddc9b0bea2
         }
     }
 
