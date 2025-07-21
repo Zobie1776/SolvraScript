@@ -1,7 +1,11 @@
 [package]
-name = "NovaScript"
+name = "novascript"
 version = "0.1.0"
 edition = "2024"
+
+[lib]
+name = "novascript"
+path = "lib.rs"
 
 [dependencies]
 

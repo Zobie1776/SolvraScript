@@ -933,11 +933,9 @@ mod tests {
     #[test]
     fn test_expr_creation() {
         let pos = Position::new(1, 1, 0);
-        
         // Test literal creation
         let literal = Expr::literal(Literal::Integer(42), pos.clone());
         assert!(matches!(literal, Expr::Literal { value: Literal::Integer(42), .. }));
-        
         // Test identifier creation
         let identifier = Expr::identifier("x".to_string(), pos.clone());
         assert!(matches!(identifier, Expr::Identifier { name, .. } if name == "x"));
@@ -946,15 +944,14 @@ mod tests {
     #[test]
     fn test_binary_expr() {
         let pos = Position::new(1, 1, 0);
-        
+        // Test binary expression creation and matching
         let left = Expr::literal(Literal::Integer(5), pos.clone());
         let right = Expr::literal(Literal::Integer(3), pos.clone());
-        let binary = Expr::binary(left, BinaryOp::Add, right, pos.clone());
-        
-        if let Expr::Binary { left, operator, right, .. } = binary {
-            assert!(matches!(**left, Expr::Literal { value: Literal::Integer(5), .. }));
+        let binary = Expr::binary(left.clone(), BinaryOp::Add, right.clone(), pos.clone());
+        if let Expr::Binary { left: l, operator, right: r, .. } = binary {
+            assert!(matches!(*l, Expr::Literal { value: Literal::Integer(5), .. }));
             assert_eq!(operator, BinaryOp::Add);
-            assert!(matches!(**right, Expr::Literal { value: Literal::Integer(3), .. }));
+            assert!(matches!(*r, Expr::Literal { value: Literal::Integer(3), .. }));
         } else {
             panic!("Expected binary expression");
         }
@@ -963,24 +960,21 @@ mod tests {
     #[test]
     fn test_function_decl() {
         let pos = Position::new(1, 1, 0);
-        
+        // Test function declaration struct
         let param = Parameter {
             name: "x".to_string(),
             param_type: Type::Int,
             default_value: None,
             position: pos.clone(),
         };
-        
         let func_decl = FunctionDecl {
             name: "test_func".to_string(),
             params: vec![param],
             return_type: Type::Int,
             body: vec![],
             is_async: false,
-            visibility: Visibility::Public,
             position: pos.clone(),
         };
-        
         assert_eq!(func_decl.name, "test_func");
         assert_eq!(func_decl.params.len(), 1);
         assert_eq!(func_decl.return_type, Type::Int);
@@ -990,7 +984,7 @@ mod tests {
     #[test]
     fn test_variable_decl() {
         let pos = Position::new(1, 1, 0);
-        
+        // Test variable declaration struct
         let var_decl = VariableDecl {
             name: "x".to_string(),
             var_type: Type::Int,
@@ -998,7 +992,6 @@ mod tests {
             initializer: Some(Expr::literal(Literal::Integer(42), pos.clone())),
             position: pos.clone(),
         };
-        
         assert_eq!(var_decl.name, "x");
         assert_eq!(var_decl.var_type, Type::Int);
         assert!(!var_decl.is_mutable);
@@ -1008,7 +1001,7 @@ mod tests {
     #[test]
     fn test_class_decl() {
         let pos = Position::new(1, 1, 0);
-        
+        // Test class declaration struct
         let class_decl = ClassDecl {
             name: "TestClass".to_string(),
             superclass: None,
@@ -1017,7 +1010,6 @@ mod tests {
             visibility: Visibility::Public,
             position: pos.clone(),
         };
-        
         assert_eq!(class_decl.name, "TestClass");
         assert!(class_decl.superclass.is_none());
         assert_eq!(class_decl.methods.len(), 0);
@@ -1027,33 +1019,30 @@ mod tests {
     #[test]
     fn test_pattern_matching() {
         let pos = Position::new(1, 1, 0);
-        
+        // Test match arm struct
         let pattern = Pattern::Literal(Literal::Integer(42));
         let guard = Expr::literal(Literal::Boolean(true), pos.clone());
         let body = Expr::literal(Literal::String("matched".to_string()), pos.clone());
-        
         let match_arm = MatchArm {
             pattern,
             guard: Some(guard),
             body,
         };
-        
         assert!(matches!(match_arm.pattern, Pattern::Literal(Literal::Integer(42))));
         assert!(match_arm.guard.is_some());
     }
 
     #[test]
     fn test_type_to_string() {
+        // Test type to string conversion
         assert_eq!(Type::Int.to_string(), "int");
         assert_eq!(Type::Float.to_string(), "float");
         assert_eq!(Type::String.to_string(), "string");
         assert_eq!(Type::Bool.to_string(), "bool");
         assert_eq!(Type::Null.to_string(), "null");
         assert_eq!(Type::Inferred.to_string(), "auto");
-        
         let array_type = Type::Array(Box::new(Type::Int));
         assert_eq!(array_type.to_string(), "[int]");
-        
         let func_type = Type::Function {
             params: vec![Type::Int, Type::String],
             return_type: Box::new(Type::Bool),
@@ -1064,10 +1053,9 @@ mod tests {
     #[test]
     fn test_expression_position() {
         let pos = Position::new(5, 10, 25);
-        
+        // Test position retrieval for expressions
         let expr = Expr::literal(Literal::Integer(42), pos.clone());
         assert_eq!(expr.position(), &pos);
-        
         let binary_expr = Expr::binary(
             Expr::literal(Literal::Integer(1), pos.clone()),
             BinaryOp::Add,
@@ -1080,13 +1068,12 @@ mod tests {
     #[test]
     fn test_statement_position() {
         let pos = Position::new(3, 7, 15);
-        
+        // Test position retrieval for statements
         let expr_stmt = Stmt::expression(
             Expr::literal(Literal::Integer(42), pos.clone()),
             pos.clone()
         );
         assert_eq!(expr_stmt.position(), &pos);
-        
         let block_stmt = Stmt::block(vec![], pos.clone());
         assert_eq!(block_stmt.position(), &pos);
     }
@@ -1094,17 +1081,15 @@ mod tests {
     #[test]
     fn test_program_utilities() {
         let pos = Position::new(1, 1, 0);
-        
+        // Test program utility methods
         let func_decl = FunctionDecl {
             name: "test".to_string(),
             params: vec![],
             return_type: Type::Inferred,
             body: vec![],
             is_async: false,
-            visibility: Visibility::Public,
             position: pos.clone(),
         };
-        
         let var_decl = VariableDecl {
             name: "x".to_string(),
             var_type: Type::Int,
@@ -1112,12 +1097,10 @@ mod tests {
             initializer: None,
             position: pos.clone(),
         };
-        
         let program = Program::new(vec![
             Stmt::function_decl(func_decl),
             Stmt::variable_decl(var_decl),
         ], pos.clone());
-        
         assert_eq!(program.find_functions().len(), 1);
         assert_eq!(program.find_variables().len(), 1);
         assert_eq!(program.find_classes().len(), 0);
@@ -1128,8 +1111,6 @@ mod tests {
 
     #[test]
     fn test_literal_variants() {
-        let pos = Position::new(1, 1, 0);
-        
         // Test all literal variants
         let int_lit = Literal::Integer(42);
         let float_lit = Literal::Float(3.14);
@@ -1137,8 +1118,7 @@ mod tests {
         let bool_lit = Literal::Boolean(true);
         let null_lit = Literal::Null;
         let array_lit = Literal::Array(vec![]);
-        let object_lit = Literal::Object(HashMap::new());
-        
+        let object_lit = Literal::Object(vec![]); // Use Vec, not HashMap
         assert!(matches!(int_lit, Literal::Integer(42)));
         assert!(matches!(float_lit, Literal::Float(f) if (f - 3.14).abs() < f64::EPSILON));
         assert!(matches!(string_lit, Literal::String(ref s) if s == "hello"));
@@ -1150,18 +1130,16 @@ mod tests {
 
     #[test]
     fn test_pattern_variants() {
+        // Test all pattern variants
         let int_pattern = Pattern::Literal(Literal::Integer(42));
         let id_pattern = Pattern::Identifier("x".to_string());
         let wildcard_pattern = Pattern::Wildcard;
-        let array_pattern = Pattern::Array(vec![]);
         let list_pattern = Pattern::List(vec![]);
-        let object_pattern = Pattern::Object(HashMap::new());
+        let object_pattern = Pattern::Object(vec![]); // Use Vec, not HashMap
         let tuple_pattern = Pattern::Tuple(vec![]);
-        
         assert!(matches!(int_pattern, Pattern::Literal(Literal::Integer(42))));
         assert!(matches!(id_pattern, Pattern::Identifier(ref s) if s == "x"));
         assert!(matches!(wildcard_pattern, Pattern::Wildcard));
-        assert!(matches!(array_pattern, Pattern::Array(_)));
         assert!(matches!(list_pattern, Pattern::List(_)));
         assert!(matches!(object_pattern, Pattern::Object(_)));
         assert!(matches!(tuple_pattern, Pattern::Tuple(_)));
@@ -1169,12 +1147,14 @@ mod tests {
 
     #[test]
     fn test_default_implementations() {
+        // Test default trait implementations
         assert_eq!(Visibility::default(), Visibility::Private);
         assert_eq!(Type::default(), Type::Inferred);
     }
 
     #[test]
     fn test_binary_operators() {
+        // Test all binary operators for Eq/Clone
         let ops = vec![
             BinaryOp::Add, BinaryOp::Subtract, BinaryOp::Multiply, BinaryOp::Divide,
             BinaryOp::Modulo, BinaryOp::Power, BinaryOp::Equal, BinaryOp::NotEqual,
@@ -1183,8 +1163,6 @@ mod tests {
             BinaryOp::BitwiseXor, BinaryOp::LeftShift, BinaryOp::RightShift,
             BinaryOp::In, BinaryOp::NotIn, BinaryOp::Is, BinaryOp::IsNot,
         ];
-        
-        // Just ensure all operators can be created and compared
         for op in ops {
             assert_eq!(op, op.clone());
         }
@@ -1192,11 +1170,10 @@ mod tests {
 
     #[test]
     fn test_unary_operators() {
+        // Test all unary operators for Eq/Clone
         let ops = vec![
             UnaryOp::Not, UnaryOp::Minus, UnaryOp::Plus, UnaryOp::BitwiseNot,
         ];
-        
-        // Just ensure all operators can be created and compared
         for op in ops {
             assert_eq!(op, op.clone());
         }
@@ -1205,7 +1182,6 @@ mod tests {
     #[test]
     fn test_complex_expressions() {
         let pos = Position::new(1, 1, 0);
-        
         // Test lambda expression
         let lambda = Expr::lambda(
             vec![],
@@ -1213,7 +1189,6 @@ mod tests {
             pos.clone()
         );
         assert!(matches!(lambda, Expr::Lambda { .. }));
-        
         // Test conditional expression
         let conditional = Expr::conditional(
             Expr::literal(Literal::Boolean(true), pos.clone()),
@@ -1222,21 +1197,18 @@ mod tests {
             pos.clone()
         );
         assert!(matches!(conditional, Expr::Conditional { .. }));
-        
         // Test list expression
         let list = Expr::list(vec![
             Expr::literal(Literal::Integer(1), pos.clone()),
             Expr::literal(Literal::Integer(2), pos.clone()),
         ], pos.clone());
         assert!(matches!(list, Expr::List { .. }));
-        
         // Test tuple expression
         let tuple = Expr::tuple(vec![
             Expr::literal(Literal::String("hello".to_string()), pos.clone()),
             Expr::literal(Literal::Integer(42), pos.clone()),
         ], pos.clone());
         assert!(matches!(tuple, Expr::Tuple { .. }));
-        
         // Test range expression
         let range = Expr::range(
             Some(Expr::literal(Literal::Integer(1), pos.clone())),
@@ -1250,7 +1222,6 @@ mod tests {
     #[test]
     fn test_complex_statements() {
         let pos = Position::new(1, 1, 0);
-        
         // Test if statement
         let if_stmt = Stmt::if_stmt(
             Expr::literal(Literal::Boolean(true), pos.clone()),
@@ -1265,7 +1236,6 @@ mod tests {
             pos.clone()
         );
         assert!(matches!(if_stmt, Stmt::If { .. }));
-        
         // Test while statement
         let while_stmt = Stmt::while_stmt(
             Expr::literal(Literal::Boolean(true), pos.clone()),
@@ -1276,7 +1246,6 @@ mod tests {
             pos.clone()
         );
         assert!(matches!(while_stmt, Stmt::While { .. }));
-        
         // Test for statement
         let for_stmt = Stmt::for_stmt(
             "i".to_string(),
@@ -1338,7 +1307,6 @@ impl FunctionDecl {
             return_type,
             body: vec![],
             is_async: false,
-            visibility: Visibility::Private,
             position,
         }
     }
@@ -1355,21 +1323,6 @@ impl FunctionDecl {
 
     pub fn async_fn(mut self) -> Self {
         self.is_async = true;
-        self
-    }
-
-    pub fn public(mut self) -> Self {
-        self.visibility = Visibility::Public;
-        self
-    }
-
-    pub fn protected(mut self) -> Self {
-        self.visibility = Visibility::Protected;
-        self
-    }
-
-    pub fn internal(mut self) -> Self {
-        self.visibility = Visibility::Internal;
         self
     }
 }

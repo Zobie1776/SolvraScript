@@ -7,6 +7,8 @@ use std::fs;
 use std::env;
 use std::process;
 use interpreter::Interpreter;
+use crate::tokenizer::Tokenizer;
+use crate::parser::Parser;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -38,7 +40,7 @@ fn main() {
 
     // Tokenize
     println!("Tokenizing...");
-    let mut tokenizer = nova_tokenizer::Tokenizer::new(&source);
+    let mut tokenizer = Tokenizer::new(&source);
     let tokens = match tokenizer.tokenize() {
         Ok(toks) => {
             println!("✓ Tokenization successful ({} tokens)", toks.len());
@@ -58,7 +60,7 @@ fn main() {
 
     // Parse
     println!("Parsing...");
-    let mut parser = nova_parser::Parser::new(tokens);
+    let mut parser = Parser::new(tokens);
     let program = match parser.parse() {
         Ok(ast) => {
             println!("✓ Parsing successful");
@@ -102,16 +104,16 @@ mod tests {
     #[test]
     fn test_basic_arithmetic() {
         let source = "5 + 3 * 2";
-        let mut tokenizer = nova_tokenizer::Tokenizer::new(source);
+        let mut tokenizer = Tokenizer::new(source);
         let tokens = tokenizer.tokenize().unwrap();
-        let mut parser = nova_parser::Parser::new(tokens);
+        let mut parser = Parser::new(tokens);
         let program = parser.parse().unwrap();
         let mut interp = Interpreter::new();
         
         match interp.eval_program(&program) {
             Ok(Some(val)) => {
                 // This should evaluate to 11 (5 + (3 * 2))
-                assert_eq!(format!("{:?}", val), "11");
+                assert_eq!(format!("{:?}", result), "Int(11)");
             },
             _ => panic!("Expected successful evaluation"),
         }
@@ -125,9 +127,9 @@ mod tests {
         y
         "#;
         
-        let mut tokenizer = nova_tokenizer::Tokenizer::new(source);
+        let mut tokenizer = Tokenizer::new(source);
         let tokens = tokenizer.tokenize().unwrap();
-        let mut parser = nova_parser::Parser::new(tokens);
+        let mut parser = Parser::new(tokens);
         let program = parser.parse().unwrap();
         let mut interp = Interpreter::new();
         
@@ -148,9 +150,9 @@ mod tests {
         y + 1
         "#;
         
-        let mut tokenizer = nova_tokenizer::Tokenizer::new(source);
+        let mut tokenizer = Tokenizer::new(source);
         let tokens = tokenizer.tokenize().unwrap();
-        let mut parser = nova_parser::Parser::new(tokens);
+        let mut parser = Parser::new(tokens);
         let program = parser.parse().unwrap();
         let mut interp = Interpreter::new();
         
@@ -166,16 +168,16 @@ mod tests {
     #[test]
     fn test_tokenizer_error() {
         let source = "let x = @invalid_token";
-        let mut tokenizer = nova_tokenizer::Tokenizer::new(source);
+        let mut tokenizer = Tokenizer::new(source);
         assert!(tokenizer.tokenize().is_err());
     }
 
     #[test]
     fn test_parser_error() {
         let source = "let x: int = ;"; // Missing expression
-        let mut tokenizer = nova_tokenizer::Tokenizer::new(source);
+        let mut tokenizer = Tokenizer::new(source);
         let tokens = tokenizer.tokenize().unwrap();
-        let mut parser = nova_parser::Parser::new(tokens);
+        let mut parser = Parser::new(tokens);
         assert!(parser.parse().is_err());
     }
 }
@@ -225,7 +227,7 @@ fn run_interactive_mode() {
                 }
                 
                 // Process the input
-                let mut tokenizer = nova_tokenizer::Tokenizer::new(input);
+                let mut tokenizer = Tokenizer::new(input);
                 let tokens = match tokenizer.tokenize() {
                     Ok(toks) => toks,
                     Err(e) => {
@@ -234,7 +236,7 @@ fn run_interactive_mode() {
                     }
                 };
                 
-                let mut parser = nova_parser::Parser::new(tokens);
+                let mut parser = Parser::new(tokens);
                 let program = match parser.parse() {
                     Ok(ast) => ast,
                     Err(e) => {

@@ -290,59 +290,34 @@ impl Interpreter {
                 result
             }
 
-            Stmt::For { init, condition, update, body, .. } => {
-                self.push_scope();
-                
-                // Initialize
-                if let Some(init_stmt) = init {
-                    self.eval_stmt(init_stmt)?;
+            Stmt::For { variable, iterable, body, .. } => {
+                // For loop: for variable in iterable { body }
+                let iter_val = self.eval_expr(iterable)?;
+                if let Value::Array(arr) = iter_val {
+                    for item in arr {
+                        self.set_variable(variable.clone(), item);
+                        match self.eval_stmt(body) {
+                            Ok(_val) => {},
+                            Err(RuntimeError::Break) => break,
+                            Err(RuntimeError::Continue) => continue,
+                            Err(RuntimeError::Return(val)) => return Err(RuntimeError::Return(val)),
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    Ok(None)
+                } else {
+                    Err(RuntimeError::TypeError("For loop expects iterable array".to_string()))
                 }
-                
-                let mut result = Ok(None);
-                loop {
-                    // Check condition
-                    if let Some(cond_expr) = condition {
-                        let cond_val = self.eval_expr(cond_expr)?;
-                        if !cond_val.is_truthy() {
-                            break;
-                        }
-                    }
-                    
-                    // Execute body
-                    match self.eval_stmt(body) {
-                        Ok(val) => result = Ok(val),
-                        Err(RuntimeError::Break) => break,
-                        Err(RuntimeError::Continue) => {
-                            // Still need to execute update
-                        }
-                        Err(RuntimeError::Return(val)) => {
-                            self.pop_scope();
-                            return Err(RuntimeError::Return(val));
-                        }
-                        Err(e) => {
-                            self.pop_scope();
-                            return Err(e);
-                        }
-                    }
-                    
-                    // Update
-                    if let Some(update_expr) = update {
-                        self.eval_expr(update_expr)?;
-                    }
-                }
-                
-                self.pop_scope();
-                result
             }
 
-            Stmt::FunctionDecl { name, params, body, .. } => {
+            Stmt::FunctionDecl { decl } => {
                 let func = Value::Function {
-                    name: name.clone(),
-                    params: params.clone(),
-                    body: body.clone(),
+                    name: decl.name.clone(),
+                    params: decl.params.iter().map(|p| p.name.clone()).collect(),
+                    body: decl.body.clone(),
                     closure: self.capture_environment(),
                 };
-                self.set_variable(name.clone(), func);
+                self.set_variable(decl.name.clone(), func);
                 Ok(None)
             }
 
@@ -353,29 +328,29 @@ impl Interpreter {
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Literal { value, .. } => self.eval_literal(value),
-            
             Expr::Identifier { name, .. } => {
                 self.get_variable(name)
                     .ok_or_else(|| RuntimeError::VariableNotFound(name.clone()))
             }
-            
             Expr::Binary { left, operator, right, .. } => {
                 let l = self.eval_expr(left)?;
                 let r = self.eval_expr(right)?;
                 self.eval_binary_op(operator, l, r)
             }
-            
             Expr::Unary { operator, operand, .. } => {
                 let v = self.eval_expr(operand)?;
                 self.eval_unary_op(operator, v)
             }
-
-            Expr::Assignment { name, value, .. } => {
-                let val = self.eval_expr(value)?;
-                self.set_variable(name.clone(), val.clone());
-                Ok(val)
+            Expr::Assignment { target, value, .. } => {
+                // Only support identifier assignment for now
+                if let Expr::Identifier { name, .. } = &**target {
+                    let val = self.eval_expr(value)?;
+                    self.set_variable(name.clone(), val.clone());
+                    Ok(val)
+                } else {
+                    Err(RuntimeError::TypeError("Invalid assignment target".to_string()))
+                }
             }
-
             Expr::Call { callee, args, .. } => {
                 let func = self.eval_expr(callee)?;
                 let mut arg_values = Vec::new();
@@ -384,21 +359,18 @@ impl Interpreter {
                 }
                 self.call_function(func, arg_values)
             }
-
             Expr::Index { object, index, .. } => {
                 let obj = self.eval_expr(object)?;
                 let idx = self.eval_expr(index)?;
                 self.eval_index_access(obj, idx)
             }
-
             Expr::Member { object, property, .. } => {
                 let obj = self.eval_expr(object)?;
                 match obj {
                     Value::Object(map) => {
-                        map.get(property)
+                        Ok(map.get(property)
                             .cloned()
-                            .unwrap_or(Value::Null)
-                            .into()
+                            .unwrap_or(Value::Null))
                     }
                     _ => Err(RuntimeError::TypeError(
                         format!("Cannot access property '{}' on {}", property, obj.type_name())
@@ -440,90 +412,91 @@ impl Interpreter {
     fn eval_binary_op(&self, op: &BinaryOp, left: Value, right: Value) -> Result<Value, RuntimeError> {
         use BinaryOp::*;
         use Value::*;
-        
-        match (op, &left, &right) {
-            // Arithmetic operations
-            (Add, Int(a), Int(b)) => Ok(Int(a + b)),
-            (Add, Float(a), Float(b)) => Ok(Float(a + b)),
-            (Add, Int(a), Float(b)) => Ok(Float(*a as f64 + b)),
-            (Add, Float(a), Int(b)) => Ok(Float(a + *b as f64)),
-            (Add, String(a), String(b)) => Ok(String(a.clone() + b)),
-            (Add, String(a), other) => Ok(String(a.clone() + &other.to_string())),
-            (Add, other, String(b)) => Ok(String(other.to_string() + b)),
-            
-            (Sub, Int(a), Int(b)) => Ok(Int(a - b)),
-            (Sub, Float(a), Float(b)) => Ok(Float(a - b)),
-            (Sub, Int(a), Float(b)) => Ok(Float(*a as f64 - b)),
-            (Sub, Float(a), Int(b)) => Ok(Float(a - *b as f64)),
-            
-            (Mul, Int(a), Int(b)) => Ok(Int(a * b)),
-            (Mul, Float(a), Float(b)) => Ok(Float(a * b)),
-            (Mul, Int(a), Float(b)) => Ok(Float(*a as f64 * b)),
-            (Mul, Float(a), Int(b)) => Ok(Float(a * *b as f64)),
-            
-            (Div, Int(a), Int(b)) => {
-                if *b == 0 {
-                    Err(RuntimeError::DivisionByZero)
-                } else {
-                    Ok(Int(a / b))
-                }
-            }
-            (Div, Float(a), Float(b)) => {
-                if *b == 0.0 {
-                    Err(RuntimeError::DivisionByZero)
-                } else {
-                    Ok(Float(a / b))
-                }
-            }
-            (Div, Int(a), Float(b)) => {
-                if *b == 0.0 {
-                    Err(RuntimeError::DivisionByZero)
-                } else {
-                    Ok(Float(*a as f64 / b))
-                }
-            }
-            (Div, Float(a), Int(b)) => {
-                if *b == 0 {
-                    Err(RuntimeError::DivisionByZero)
-                } else {
-                    Ok(Float(a / *b as f64))
-                }
-            }
-            
-            // Comparison operations
-            (Eq, a, b) => Ok(Bool(a == b)),
-            (Ne, a, b) => Ok(Bool(a != b)),
-            (Lt, Int(a), Int(b)) => Ok(Bool(a < b)),
-            (Lt, Float(a), Float(b)) => Ok(Bool(a < b)),
-            (Le, Int(a), Int(b)) => Ok(Bool(a <= b)),
-            (Le, Float(a), Float(b)) => Ok(Bool(a <= b)),
-            (Gt, Int(a), Int(b)) => Ok(Bool(a > b)),
-            (Gt, Float(a), Float(b)) => Ok(Bool(a > b)),
-            (Ge, Int(a), Int(b)) => Ok(Bool(a >= b)),
-            (Ge, Float(a), Float(b)) => Ok(Bool(a >= b)),
-            
-            // Logical operations
-            (And, _, _) => Ok(Bool(left.is_truthy() && right.is_truthy())),
-            (Or, _, _) => Ok(Bool(left.is_truthy() || right.is_truthy())),
-            
-            _ => Err(RuntimeError::TypeError(
-                format!("Binary operation {:?} not supported for {} and {}", 
-                    op, left.type_name(), right.type_name())
-            )),
+        match op {
+            Add => match (left, right) {
+                (Int(a), Int(b)) => Ok(Int(a + b)),
+                (Float(a), Float(b)) => Ok(Float(a + b)),
+                (Int(a), Float(b)) => Ok(Float(a as f64 + b)),
+                (Float(a), Int(b)) => Ok(Float(a + b as f64)),
+                (String(a), String(b)) => Ok(String(a + &b)),
+                (String(a), b) => Ok(String(a + &b.to_string())),
+                (a, String(b)) => Ok(String(a.to_string() + &b)),
+                (a, b) => Err(RuntimeError::TypeError(format!("Add not supported for {} and {}", a.type_name(), b.type_name()))),
+            },
+            Subtract => match (left, right) {
+                (Int(a), Int(b)) => Ok(Int(a - b)),
+                (Float(a), Float(b)) => Ok(Float(a - b)),
+                (Int(a), Float(b)) => Ok(Float(a as f64 - b)),
+                (Float(a), Int(b)) => Ok(Float(a - b as f64)),
+                (a, b) => Err(RuntimeError::TypeError(format!("Subtract not supported for {} and {}", a.type_name(), b.type_name()))),
+            },
+            Multiply => match (left, right) {
+                (Int(a), Int(b)) => Ok(Int(a * b)),
+                (Float(a), Float(b)) => Ok(Float(a * b)),
+                (Int(a), Float(b)) => Ok(Float(a as f64 * b)),
+                (Float(a), Int(b)) => Ok(Float(a * b as f64)),
+                (a, b) => Err(RuntimeError::TypeError(format!("Multiply not supported for {} and {}", a.type_name(), b.type_name()))),
+            },
+            Divide => match (left, right) {
+                (Int(_), Int(0)) | (Float(_), Float(0.0)) | (Int(_), Float(0.0)) | (Float(_), Int(0)) => Err(RuntimeError::DivisionByZero),
+                (Int(a), Int(b)) => Ok(Int(a / b)),
+                (Float(a), Float(b)) => Ok(Float(a / b)),
+                (Int(a), Float(b)) => Ok(Float(a as f64 / b)),
+                (Float(a), Int(b)) => Ok(Float(a / b as f64)),
+                (a, b) => Err(RuntimeError::TypeError(format!("Divide not supported for {} and {}", a.type_name(), b.type_name()))),
+            },
+            Modulo => match (left, right) {
+                (Int(_), Int(0)) => Err(RuntimeError::DivisionByZero),
+                (Int(a), Int(b)) => Ok(Int(a % b)),
+                (a, b) => Err(RuntimeError::TypeError(format!("Modulo not supported for {} and {}", a.type_name(), b.type_name()))),
+            },
+            Equal => Ok(Value::Bool(left == right)),
+            NotEqual => Ok(Value::Bool(left != right)),
+            Less => match (left, right) {
+                (Int(a), Int(b)) => Ok(Bool(a < b)),
+                (Float(a), Float(b)) => Ok(Bool(a < b)),
+                (a, b) => Err(RuntimeError::TypeError(format!("Less not supported for {} and {}", a.type_name(), b.type_name()))),
+            },
+            Greater => match (left, right) {
+                (Int(a), Int(b)) => Ok(Bool(a > b)),
+                (Float(a), Float(b)) => Ok(Bool(a > b)),
+                (a, b) => Err(RuntimeError::TypeError(format!("Greater not supported for {} and {}", a.type_name(), b.type_name()))),
+            },
+            LessEqual => match (left, right) {
+                (Int(a), Int(b)) => Ok(Bool(a <= b)),
+                (Float(a), Float(b)) => Ok(Bool(a <= b)),
+                (a, b) => Err(RuntimeError::TypeError(format!("LessEqual not supported for {} and {}", a.type_name(), b.type_name()))),
+            },
+            GreaterEqual => match (left, right) {
+                (Int(a), Int(b)) => Ok(Bool(a >= b)),
+                (Float(a), Float(b)) => Ok(Bool(a >= b)),
+                (a, b) => Err(RuntimeError::TypeError(format!("GreaterEqual not supported for {} and {}", a.type_name(), b.type_name()))),
+            },
+            And => Ok(Bool(left.is_truthy() && right.is_truthy())),
+            Or => Ok(Bool(left.is_truthy() || right.is_truthy())),
+            _ => Err(RuntimeError::NotImplemented(format!("Operator {:?} not implemented", op))),
         }
     }
 
     fn eval_unary_op(&self, op: &UnaryOp, operand: Value) -> Result<Value, RuntimeError> {
         use UnaryOp::*;
         use Value::*;
-        
-        match (op, operand) {
-            (Neg, Int(n)) => Ok(Int(-n)),
-            (Neg, Float(f)) => Ok(Float(-f)),
-            (Not, val) => Ok(Bool(!val.is_truthy())),
-            _ => Err(RuntimeError::TypeError(
-                format!("Unary operation {:?} not supported for {}", op, operand.type_name())
-            )),
+        match op {
+            Minus => match operand {
+                Int(n) => Ok(Int(-n)),
+                Float(f) => Ok(Float(-f)),
+                _ => Err(RuntimeError::TypeError(format!("Unary minus not supported for {}", operand.type_name()))),
+            },
+            Plus => match operand {
+                Int(n) => Ok(Int(n)),
+                Float(f) => Ok(Float(f)),
+                _ => Err(RuntimeError::TypeError(format!("Unary plus not supported for {}", operand.type_name()))),
+            },
+            Not => Ok(Bool(!operand.is_truthy())),
+            BitwiseNot => match operand {
+                Int(n) => Ok(Int(!n)),
+                _ => Err(RuntimeError::TypeError(format!("Bitwise not not supported for {}", operand.type_name()))),
+            },
         }
     }
 
@@ -580,7 +553,7 @@ impl Interpreter {
                 func(&args)
             }
             
-            Value::Function { name, params, body, closure } => {
+            Value::Function { name, params, body, closure: _ } => {
                 if args.len() != params.len() {
                     return Err(RuntimeError::ArgumentError(
                         format!("Function '{}' expects {} arguments, got {}", name, params.len(), args.len())
