@@ -696,15 +696,16 @@ impl Parser {
             TokenKind::String(s) => {
                 let s = s.clone();
                 self.advance();
-                Ok(Expr::Literal {
-                    value: Literal::String(s),
+                Ok(Expr::StringTemplate {
+                    parts: vec![StringPart::Literal(s)],
                     position,
                 })
             }
-            TokenKind::StringTemplate(parts) => {
+            TokenKind::StringTemplate(s) => {
+                let s = s.clone();
                 self.advance();
                 Ok(Expr::StringTemplate {
-                    parts: parts.clone(),
+                    parts: vec![StringPart::Literal(s)],
                     position,
                 })
             }
@@ -909,24 +910,26 @@ impl Parser {
 
     /// Parse pattern for match expressions
 fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
-    let token = self.peek();
-
-    match &token.kind {
+    match &self.peek().kind {
         TokenKind::Integer(n) => {
+            let n = *n;
             self.advance();
-            Ok(Pattern::Literal(Literal::Integer(*n)))
+            Ok(Pattern::Literal(Literal::Integer(n)))
         }
         TokenKind::Float(f) => {
+            let f = *f;
             self.advance();
-            Ok(Pattern::Literal(Literal::Float(*f)))
+            Ok(Pattern::Literal(Literal::Float(f)))
         }
         TokenKind::String(s) => {
+            let s = s.clone();
             self.advance();
-            Ok(Pattern::Literal(Literal::String(s.clone())))
+            Ok(Pattern::Literal(Literal::String(s)))
         }
         TokenKind::Boolean(b) => {
+            let b = *b;
             self.advance();
-            Ok(Pattern::Literal(Literal::Boolean(*b)))
+            Ok(Pattern::Literal(Literal::Boolean(b)))
         }
         TokenKind::Null => {
             self.advance();
@@ -943,7 +946,6 @@ fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
             }
         }
         TokenKind::LeftBracket => {
-            // List/array destructuring pattern: [a, b, ...]
             self.advance();
             let mut elements = Vec::new();
             if !self.check(&TokenKind::RightBracket) {
@@ -959,7 +961,6 @@ fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
             Ok(Pattern::List(elements))
         }
         TokenKind::LeftBrace => {
-            // Object destructuring pattern: {a, b: x, ...}
             self.advance();
             let mut fields = Vec::new();
             if !self.check(&TokenKind::RightBrace) {
@@ -981,11 +982,10 @@ fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
             self.consume(&TokenKind::RightBrace, "Expected '}' after object pattern")?;
             Ok(Pattern::Object(fields))
         }
-    }        
         _ => Err(ParseError::UnexpectedToken {
             expected: "pattern".to_string(),
-            found: token.kind.clone(),
-            position: token.position.clone(),
+            found: self.peek().kind.clone(),
+            position: self.peek().position.clone(),
         }),
     }
 }
@@ -1127,7 +1127,5 @@ fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
             }
             _ => Ok(Type::Inferred),
         }
-    }
-} // End of impl Parser
-
-}
+    } 
+} // End of Parser implementation

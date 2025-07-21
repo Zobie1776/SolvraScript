@@ -135,6 +135,12 @@ pub enum Expr {
         parts: Vec<StringPart>,
         position: Position,
     },
+    If {
+        condition: Box<Expr>,
+        then_expr: Box<Expr>,
+        else_expr: Box<Expr>,
+        position: Position,
+    },
     StringTemplate {
         parts: Vec<StringPart>,
         position: Position,
@@ -203,6 +209,7 @@ impl Expr {
             Expr::Index { position, .. } => position,
             Expr::Member { position, .. } => position,
             Expr::StringInterpolation { position, .. } => position,
+            Expr::If { position, .. } => position,
             Expr::StringTemplate { position, .. } => position,
             Expr::Assignment { position, .. } => position,
             Expr::Lambda { position, .. } => position,
@@ -948,20 +955,11 @@ mod tests {
         // Test binary expression creation and matching
         let left = Expr::literal(Literal::Integer(5), pos.clone());
         let right = Expr::literal(Literal::Integer(3), pos.clone());
-<<<<<<< HEAD
         let binary = Expr::binary(left.clone(), BinaryOp::Add, right.clone(), pos.clone());
         if let Expr::Binary { left: l, operator, right: r, .. } = binary {
             assert!(matches!(*l, Expr::Literal { value: Literal::Integer(5), .. }));
             assert_eq!(operator, BinaryOp::Add);
             assert!(matches!(*r, Expr::Literal { value: Literal::Integer(3), .. }));
-=======
-        let binary = Expr::binary(left, BinaryOp::Add, right, pos.clone());
-        
-        if let Expr::Binary { left, operator, right, .. } = binary {
-            assert!(matches!(*left, Expr::Literal { value: Literal::Integer(5), .. }));
-            assert_eq!(operator, BinaryOp::Add);
-            assert!(matches!(*right, Expr::Literal { value: Literal::Integer(3), .. }));
->>>>>>> a68d2cfc32a52279e67300148c60b4ddc9b0bea2
         } else {
             panic!("Expected binary expression");
         }
@@ -983,6 +981,7 @@ mod tests {
             return_type: Type::Int,
             body: vec![],
             is_async: false,
+            visibility: Visibility::Private,
             position: pos.clone(),
         };
         assert_eq!(func_decl.name, "test_func");
@@ -1098,6 +1097,7 @@ mod tests {
             return_type: Type::Inferred,
             body: vec![],
             is_async: false,
+            visibility: Visibility::Private,
             position: pos.clone(),
         };
         let var_decl = VariableDecl {
@@ -1128,12 +1128,8 @@ mod tests {
         let bool_lit = Literal::Boolean(true);
         let null_lit = Literal::Null;
         let array_lit = Literal::Array(vec![]);
-<<<<<<< HEAD
-        let object_lit = Literal::Object(vec![]); // Use Vec, not HashMap
-=======
         let object_lit = Literal::Object(Vec::new());
         
->>>>>>> a68d2cfc32a52279e67300148c60b4ddc9b0bea2
         assert!(matches!(int_lit, Literal::Integer(42)));
         assert!(matches!(float_lit, Literal::Float(f) if (f - 3.14).abs() < f64::EPSILON));
         assert!(matches!(string_lit, Literal::String(ref s) if s == "hello"));
@@ -1150,11 +1146,7 @@ mod tests {
         let id_pattern = Pattern::Identifier("x".to_string());
         let wildcard_pattern = Pattern::Wildcard;
         let list_pattern = Pattern::List(vec![]);
-<<<<<<< HEAD
-        let object_pattern = Pattern::Object(vec![]); // Use Vec, not HashMap
-=======
         let object_pattern = Pattern::Object(Vec::new());
->>>>>>> a68d2cfc32a52279e67300148c60b4ddc9b0bea2
         let tuple_pattern = Pattern::Tuple(vec![]);
         assert!(matches!(int_pattern, Pattern::Literal(Literal::Integer(42))));
         assert!(matches!(id_pattern, Pattern::Identifier(ref s) if s == "x"));
@@ -1322,10 +1314,11 @@ impl FunctionDecl {
     pub fn new(name: String, return_type: Type, position: Position) -> Self {
         Self {
             name,
-            params: vec![],
+            params: Vec::new(),
             return_type,
-            body: vec![],
+            body: Vec::new(),
             is_async: false,
+            visibility: Visibility::Private,
             position,
         }
     }

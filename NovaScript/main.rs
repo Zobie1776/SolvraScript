@@ -10,8 +10,6 @@ use std::fs;
 use std::env;
 use std::process;
 use interpreter::Interpreter;
-use crate::tokenizer::Tokenizer;
-use crate::parser::Parser;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -116,7 +114,7 @@ mod tests {
         match interp.eval_program(&program) {
             Ok(Some(val)) => {
                 // This should evaluate to 11 (5 + (3 * 2))
-                assert_eq!(format!("{:?}", result), "Int(11)");
+                assert_eq!(format!("{:?}", val), "Int(11)");
             },
             _ => panic!("Expected successful evaluation"),
         }
@@ -124,11 +122,7 @@ mod tests {
 
     #[test]
     fn test_variable_assignment() {
-        let source = r#"
-        let x: int = 10;
-        let y: int = x + 5;
-        y
-        "#;
+        let source = "let x: int = 10;\nlet y: int = x + 5;\ny";
         
         let mut tokenizer = Tokenizer::new(source);
         let tokens = tokenizer.tokenize().unwrap();
@@ -139,7 +133,7 @@ mod tests {
         match interp.eval_program(&program) {
             Ok(Some(val)) => {
                 // This should evaluate to 15
-                assert_eq!(format!("{:?}", val), "15");
+                assert_eq!(format!("{:?}", val), "Int(15)");
             },
             _ => panic!("Expected successful evaluation"),
         }
@@ -147,11 +141,7 @@ mod tests {
 
     #[test]
     fn test_complex_expression() {
-        let source = r#"
-        let x: int = 5 + 6 * 2;
-        let y: int = x * 3;
-        y + 1
-        "#;
+        let source = "let x: int = 5 + 6 * 2;\nlet y: int = x * 3;\ny + 1";
         
         let mut tokenizer = Tokenizer::new(source);
         let tokens = tokenizer.tokenize().unwrap();
@@ -162,7 +152,7 @@ mod tests {
         match interp.eval_program(&program) {
             Ok(Some(val)) => {
                 // x = 5 + 12 = 17, y = 17 * 3 = 51, result = 51 + 1 = 52
-                assert_eq!(format!("{:?}", val), "52");
+                assert_eq!(format!("{:?}", val), "Int(52)");
             },
             _ => panic!("Expected successful evaluation"),
         }
