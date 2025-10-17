@@ -1,9 +1,8 @@
-use crate::tokenizer::{Token, TokenKind, Position};
 use crate::ast::{
-    Expr, Stmt, Type, BinaryOp, UnaryOp, Literal, Pattern, MatchArm, Parameter,
-    VariableDecl, FunctionDecl, ImportDecl, CatchBlock, Program, StringPart,
-    Visibility
+    BinaryOp, CatchBlock, Expr, FunctionDecl, ImportDecl, Literal, MatchArm, Parameter, Pattern,
+    Program, Stmt, StringPart, Type, UnaryOp, VariableDecl, Visibility,
 };
+use crate::tokenizer::{Position, Token, TokenKind};
 
 /// Parser error types
 #[derive(Debug, Clone)]
@@ -26,17 +25,30 @@ pub enum ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::UnexpectedToken { expected, found, position } => {
-                write!(f, "Expected {} but found {:?} at line {}, column {}", 
-                       expected, found, position.line, position.column)
+            ParseError::UnexpectedToken {
+                expected,
+                found,
+                position,
+            } => {
+                write!(
+                    f,
+                    "Expected {} but found {:?} at line {}, column {}",
+                    expected, found, position.line, position.column
+                )
             }
             ParseError::UnexpectedEndOfInput { expected, position } => {
-                write!(f, "Unexpected end of input, expected {} at line {}, column {}", 
-                       expected, position.line, position.column)
+                write!(
+                    f,
+                    "Unexpected end of input, expected {} at line {}, column {}",
+                    expected, position.line, position.column
+                )
             }
             ParseError::InvalidSyntax { message, position } => {
-                write!(f, "Invalid syntax: {} at line {}, column {}", 
-                       message, position.line, position.column)
+                write!(
+                    f,
+                    "Invalid syntax: {} at line {}, column {}",
+                    message, position.line, position.column
+                )
             }
         }
     }
@@ -63,7 +75,10 @@ impl Parser {
         while !self.is_at_end() {
             // Skip whitespace and comments at the top level
             match &self.peek().kind {
-                TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent | TokenKind::Comment(_) => {
+                TokenKind::Newline
+                | TokenKind::Indent
+                | TokenKind::Dedent
+                | TokenKind::Comment(_) => {
                     self.advance();
                     continue;
                 }
@@ -74,7 +89,6 @@ impl Parser {
 
         Ok(Program::new(statements, position))
     }
-
 
     /// Parse a single statement
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
@@ -139,7 +153,7 @@ impl Parser {
     /// Parse function declaration: fn name(params) -> return_type { body }
     fn parse_function_declaration(&mut self) -> Result<Stmt, ParseError> {
         let start_pos = self.current_position();
-        
+
         let is_async = if self.check(&TokenKind::Async) {
             self.advance();
             true
@@ -157,7 +171,7 @@ impl Parser {
             loop {
                 let param_pos = self.current_position();
                 let param_name = self.consume_identifier("Expected parameter name")?;
-                
+
                 let param_type = if self.check(&TokenKind::Colon) {
                     self.advance();
                     self.parse_type()?
@@ -218,7 +232,7 @@ impl Parser {
 
         let module = self.consume_identifier("Expected module name")?;
         let items = Vec::new(); // TODO: Handle specific imports like import { foo, bar }
-        
+
         let alias = if self.check(&TokenKind::Identifier("as".to_string())) {
             self.advance();
             Some(self.consume_identifier("Expected alias name")?)
@@ -434,7 +448,10 @@ impl Parser {
         } {
             // Skip whitespace and comments inside blocks
             match &self.peek().kind {
-                TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent | TokenKind::Comment(_) => {
+                TokenKind::Newline
+                | TokenKind::Indent
+                | TokenKind::Dedent
+                | TokenKind::Comment(_) => {
                     self.advance();
                     continue;
                 }
@@ -586,11 +603,9 @@ impl Parser {
     fn parse_factor(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_unary()?;
 
-        while let Some(op) = self.match_binary_op(&[
-            TokenKind::Star,
-            TokenKind::Slash,
-            TokenKind::Percent,
-        ]) {
+        while let Some(op) =
+            self.match_binary_op(&[TokenKind::Star, TokenKind::Slash, TokenKind::Percent])
+        {
             let start_pos = self.current_position();
             let right = self.parse_unary()?;
 
@@ -755,24 +770,19 @@ impl Parser {
                         self.advance();
                     }
                 }
-                self.consume(&TokenKind::RightBracket, "Expected ']' after array elements")?;
+                self.consume(
+                    &TokenKind::RightBracket,
+                    "Expected ']' after array elements",
+                )?;
                 Ok(Expr::Literal {
                     value: Literal::Array(elements),
                     position,
                 })
             }
-            TokenKind::LeftBrace => {
-                self.parse_object_literal()
-            }
-            TokenKind::Match => {
-                self.parse_match_expression()
-            }
-            TokenKind::If => {
-                self.parse_if_expression()
-            }
-            TokenKind::Lambda => {
-                self.parse_lambda_expression()
-            }
+            TokenKind::LeftBrace => self.parse_object_literal(),
+            TokenKind::Match => self.parse_match_expression(),
+            TokenKind::If => self.parse_if_expression(),
+            TokenKind::Lambda => self.parse_lambda_expression(),
             _ => Err(ParseError::UnexpectedToken {
                 expected: "expression".to_string(),
                 found: token.kind.clone(),
@@ -841,7 +851,7 @@ impl Parser {
             }
 
             let pattern = self.parse_pattern()?;
-            
+
             let guard = if self.check(&TokenKind::If) {
                 self.advance();
                 Some(self.parse_expression()?)
@@ -852,7 +862,11 @@ impl Parser {
             self.consume(&TokenKind::Arrow, "Expected '=>' after match pattern")?;
             let body = self.parse_expression()?;
 
-            arms.push(MatchArm { pattern, guard, body });
+            arms.push(MatchArm {
+                pattern,
+                guard,
+                body,
+            });
 
             if self.check(&TokenKind::Comma) {
                 self.advance();
@@ -917,90 +931,93 @@ impl Parser {
     }
 
     /// Parse pattern for match expressions
-fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
-    match &self.peek().kind {
-        TokenKind::Integer(n) => {
-            let n = *n;
-            self.advance();
-            Ok(Pattern::Literal(Literal::Integer(n)))
-        }
-        TokenKind::Float(f) => {
-            let f = *f;
-            self.advance();
-            Ok(Pattern::Literal(Literal::Float(f)))
-        }
-        TokenKind::String(s) => {
-            let s = s.clone();
-            self.advance();
-            Ok(Pattern::Literal(Literal::String(s)))
-        }
-        TokenKind::Boolean(b) => {
-            let b = *b;
-            self.advance();
-            Ok(Pattern::Literal(Literal::Boolean(b)))
-        }
-        TokenKind::Null => {
-            self.advance();
-            Ok(Pattern::Literal(Literal::Null))
-        }
-        TokenKind::Identifier(name) => {
-            if name == "_" {
+    fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
+        match &self.peek().kind {
+            TokenKind::Integer(n) => {
+                let n = *n;
                 self.advance();
-                Ok(Pattern::Wildcard)
-            } else {
-                let name = name.clone();
-                self.advance();
-                Ok(Pattern::Identifier(name))
+                Ok(Pattern::Literal(Literal::Integer(n)))
             }
-        }
-        TokenKind::LeftBracket => {
-            self.advance();
-            let mut elements = Vec::new();
-            if !self.check(&TokenKind::RightBracket) {
-                loop {
-                    elements.push(self.parse_pattern()?);
-                    if !self.check(&TokenKind::Comma) {
-                        break;
-                    }
+            TokenKind::Float(f) => {
+                let f = *f;
+                self.advance();
+                Ok(Pattern::Literal(Literal::Float(f)))
+            }
+            TokenKind::String(s) => {
+                let s = s.clone();
+                self.advance();
+                Ok(Pattern::Literal(Literal::String(s)))
+            }
+            TokenKind::Boolean(b) => {
+                let b = *b;
+                self.advance();
+                Ok(Pattern::Literal(Literal::Boolean(b)))
+            }
+            TokenKind::Null => {
+                self.advance();
+                Ok(Pattern::Literal(Literal::Null))
+            }
+            TokenKind::Identifier(name) => {
+                if name == "_" {
                     self.advance();
+                    Ok(Pattern::Wildcard)
+                } else {
+                    let name = name.clone();
+                    self.advance();
+                    Ok(Pattern::Identifier(name))
                 }
             }
-            self.consume(&TokenKind::RightBracket, "Expected ']' after list pattern")?;
-            Ok(Pattern::List(elements))
-        }
-        TokenKind::LeftBrace => {
-            self.advance();
-            let mut fields = Vec::new();
-            if !self.check(&TokenKind::RightBrace) {
-                loop {
-                    let key = self.consume_identifier("Expected property name in object pattern")?;
-                    let value = if self.check(&TokenKind::Colon) {
+            TokenKind::LeftBracket => {
+                self.advance();
+                let mut elements = Vec::new();
+                if !self.check(&TokenKind::RightBracket) {
+                    loop {
+                        elements.push(self.parse_pattern()?);
+                        if !self.check(&TokenKind::Comma) {
+                            break;
+                        }
                         self.advance();
-                        self.parse_pattern()?
-                    } else {
-                        Pattern::Identifier(key.clone())
-                    };
-                    fields.push((key, value));
-                    if !self.check(&TokenKind::Comma) {
-                        break;
                     }
-                    self.advance();
                 }
+                self.consume(&TokenKind::RightBracket, "Expected ']' after list pattern")?;
+                Ok(Pattern::List(elements))
             }
-            self.consume(&TokenKind::RightBrace, "Expected '}' after object pattern")?;
-            Ok(Pattern::Object(fields))
+            TokenKind::LeftBrace => {
+                self.advance();
+                let mut fields = Vec::new();
+                if !self.check(&TokenKind::RightBrace) {
+                    loop {
+                        let key =
+                            self.consume_identifier("Expected property name in object pattern")?;
+                        let value = if self.check(&TokenKind::Colon) {
+                            self.advance();
+                            self.parse_pattern()?
+                        } else {
+                            Pattern::Identifier(key.clone())
+                        };
+                        fields.push((key, value));
+                        if !self.check(&TokenKind::Comma) {
+                            break;
+                        }
+                        self.advance();
+                    }
+                }
+                self.consume(&TokenKind::RightBrace, "Expected '}' after object pattern")?;
+                Ok(Pattern::Object(fields))
+            }
+            _ => Err(ParseError::UnexpectedToken {
+                expected: "pattern".to_string(),
+                found: self.peek().kind.clone(),
+                position: self.peek().position.clone(),
+            }),
         }
-        _ => Err(ParseError::UnexpectedToken {
-            expected: "pattern".to_string(),
-            found: self.peek().kind.clone(),
-            position: self.peek().position.clone(),
-        }),
     }
-}
 
     // Utility: peek at current token
     fn peek(&self) -> &Token {
-        self.tokens.get(self.current).unwrap_or_else(|| self.tokens.last().unwrap())
+        self.tokens
+            .get(self.current)
+            .unwrap_or_else(|| self.tokens.last().unwrap())
     }
 
     // Utility: advance to next token and return previous
@@ -1124,10 +1141,22 @@ fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
     fn parse_type(&mut self) -> Result<Type, ParseError> {
         // Accept int, float, string, bool, or identifier as type
         match &self.peek().kind {
-            TokenKind::IntType => { self.advance(); Ok(Type::Int) }
-            TokenKind::FloatType => { self.advance(); Ok(Type::Float) }
-            TokenKind::StringType => { self.advance(); Ok(Type::String) }
-            TokenKind::BoolType => { self.advance(); Ok(Type::Bool) }
+            TokenKind::IntType => {
+                self.advance();
+                Ok(Type::Int)
+            }
+            TokenKind::FloatType => {
+                self.advance();
+                Ok(Type::Float)
+            }
+            TokenKind::StringType => {
+                self.advance();
+                Ok(Type::String)
+            }
+            TokenKind::BoolType => {
+                self.advance();
+                Ok(Type::Bool)
+            }
             TokenKind::Identifier(name) => {
                 let name = name.clone();
                 self.advance();
@@ -1135,5 +1164,5 @@ fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
             }
             _ => Ok(Type::Inferred),
         }
-    } 
+    }
 } // End of Parser implementation

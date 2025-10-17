@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 /// NovaScript runtime value types
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
     Float(f64),
@@ -25,6 +25,54 @@ pub enum Value {
     Null,
 }
 
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        use Value::*;
+
+        match (self, other) {
+            (Int(a), Int(b)) => a == b,
+            (Float(a), Float(b)) => a == b,
+            (Bool(a), Bool(b)) => a == b,
+            (String(a), String(b)) => a == b,
+            (Array(a), Array(b)) => a == b,
+            (Object(a), Object(b)) => a == b,
+            (
+                Function {
+                    name: name_a,
+                    params: params_a,
+                    body: body_a,
+                    closure: closure_a,
+                },
+                Function {
+                    name: name_b,
+                    params: params_b,
+                    body: body_b,
+                    closure: closure_b,
+                },
+            ) => {
+                name_a == name_b
+                    && params_a == params_b
+                    && body_a == body_b
+                    && closure_a == closure_b
+            }
+            (
+                NativeFunction {
+                    name: name_a,
+                    arity: arity_a,
+                    ..
+                },
+                NativeFunction {
+                    name: name_b,
+                    arity: arity_b,
+                    ..
+                },
+            ) => name_a == name_b && arity_a == arity_b,
+            (Null, Null) => true,
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -35,7 +83,9 @@ impl fmt::Display for Value {
             Value::Array(arr) => {
                 write!(f, "[")?;
                 for (i, val) in arr.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", val)?;
                 }
                 write!(f, "]")
@@ -43,7 +93,9 @@ impl fmt::Display for Value {
             Value::Object(obj) => {
                 write!(f, "{{")?;
                 for (i, (key, val)) in obj.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}: {}", key, val)?;
                 }
                 write!(f, "}}")
@@ -154,45 +206,64 @@ impl Interpreter {
 
     fn init_builtins(&mut self) {
         // Built-in functions
-        self.globals.insert("print".to_string(), Value::NativeFunction {
-            name: "print".to_string(),
-            arity: 1,
-            func: |args| {
-                if args.len() != 1 {
-                    return Err(RuntimeError::ArgumentError("print expects 1 argument".to_string()));
-                }
-                println!("{}", args[0]);
-                Ok(Value::Null)
+        self.globals.insert(
+            "print".to_string(),
+            Value::NativeFunction {
+                name: "print".to_string(),
+                arity: 1,
+                func: |args| {
+                    if args.len() != 1 {
+                        return Err(RuntimeError::ArgumentError(
+                            "print expects 1 argument".to_string(),
+                        ));
+                    }
+                    println!("{}", args[0]);
+                    Ok(Value::Null)
+                },
             },
-        });
+        );
 
-        self.globals.insert("len".to_string(), Value::NativeFunction {
-            name: "len".to_string(),
-            arity: 1,
-            func: |args| {
-                if args.len() != 1 {
-                    return Err(RuntimeError::ArgumentError("len expects 1 argument".to_string()));
-                }
-                let length = match &args[0] {
-                    Value::String(s) => s.len(),
-                    Value::Array(arr) => arr.len(),
-                    Value::Object(obj) => obj.len(),
-                    _ => return Err(RuntimeError::TypeError("len() not supported for this type".to_string())),
-                };
-                Ok(Value::Int(length as i64))
+        self.globals.insert(
+            "len".to_string(),
+            Value::NativeFunction {
+                name: "len".to_string(),
+                arity: 1,
+                func: |args| {
+                    if args.len() != 1 {
+                        return Err(RuntimeError::ArgumentError(
+                            "len expects 1 argument".to_string(),
+                        ));
+                    }
+                    let length = match &args[0] {
+                        Value::String(s) => s.len(),
+                        Value::Array(arr) => arr.len(),
+                        Value::Object(obj) => obj.len(),
+                        _ => {
+                            return Err(RuntimeError::TypeError(
+                                "len() not supported for this type".to_string(),
+                            ));
+                        }
+                    };
+                    Ok(Value::Int(length as i64))
+                },
             },
-        });
+        );
 
-        self.globals.insert("type".to_string(), Value::NativeFunction {
-            name: "type".to_string(),
-            arity: 1,
-            func: |args| {
-                if args.len() != 1 {
-                    return Err(RuntimeError::ArgumentError("type expects 1 argument".to_string()));
-                }
-                Ok(Value::String(args[0].type_name().to_string()))
+        self.globals.insert(
+            "type".to_string(),
+            Value::NativeFunction {
+                name: "type".to_string(),
+                arity: 1,
+                func: |args| {
+                    if args.len() != 1 {
+                        return Err(RuntimeError::ArgumentError(
+                            "type expects 1 argument".to_string(),
+                        ));
+                    }
+                    Ok(Value::String(args[0].type_name().to_string()))
+                },
             },
-        });
+        );
     }
 
     pub fn eval_program(&mut self, program: &Program) -> Result<Option<Value>, RuntimeError> {
@@ -218,12 +289,12 @@ impl Interpreter {
                 self.set_variable(decl.name.clone(), val);
                 Ok(None)
             }
-            
+
             Stmt::Expression { expr, .. } => {
                 let v = self.eval_expr(expr)?;
                 Ok(Some(v))
             }
-            
+
             Stmt::Return { value, .. } => {
                 let v = if let Some(expr) = value {
                     self.eval_expr(expr)?
@@ -232,10 +303,10 @@ impl Interpreter {
                 };
                 Err(RuntimeError::Return(v))
             }
-            
+
             Stmt::Break { .. } => Err(RuntimeError::Break),
             Stmt::Continue { .. } => Err(RuntimeError::Continue),
-            
+
             Stmt::Block { statements, .. } => {
                 self.push_scope();
                 let mut result = Ok(None);
@@ -260,7 +331,12 @@ impl Interpreter {
                 result
             }
 
-            Stmt::If { condition, then_branch, else_branch, .. } => {
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 let cond_val = self.eval_expr(condition)?;
                 if cond_val.is_truthy() {
                     self.eval_stmt(then_branch)
@@ -271,14 +347,16 @@ impl Interpreter {
                 }
             }
 
-            Stmt::While { condition, body, .. } => {
+            Stmt::While {
+                condition, body, ..
+            } => {
                 let mut result = Ok(None);
                 loop {
                     let cond_val = self.eval_expr(condition)?;
                     if !cond_val.is_truthy() {
                         break;
                     }
-                    
+
                     match self.eval_stmt(body) {
                         Ok(val) => result = Ok(val),
                         Err(RuntimeError::Break) => break,
@@ -290,7 +368,12 @@ impl Interpreter {
                 result
             }
 
-            Stmt::For { variable, iterable, body, .. } => {
+            Stmt::For {
+                variable,
+                iterable,
+                body,
+                ..
+            } => {
                 let iterable_val = self.eval_expr(iterable)?;
                 match iterable_val {
                     Value::Array(elements) => {
@@ -300,18 +383,31 @@ impl Interpreter {
                             self.set_variable(variable.clone(), item);
                             match self.eval_stmt(body) {
                                 Ok(val) => result = Ok(val),
-                                Err(RuntimeError::Break) => { self.pop_scope(); break; }
-                                Err(RuntimeError::Continue) => { self.pop_scope(); continue; }
-                                Err(RuntimeError::Return(v)) => { self.pop_scope(); return Err(RuntimeError::Return(v)); }
-                                Err(e) => { self.pop_scope(); return Err(e); }
+                                Err(RuntimeError::Break) => {
+                                    self.pop_scope();
+                                    break;
+                                }
+                                Err(RuntimeError::Continue) => {
+                                    self.pop_scope();
+                                    continue;
+                                }
+                                Err(RuntimeError::Return(v)) => {
+                                    self.pop_scope();
+                                    return Err(RuntimeError::Return(v));
+                                }
+                                Err(e) => {
+                                    self.pop_scope();
+                                    return Err(e);
+                                }
                             }
                             self.pop_scope();
                         }
                         result
                     }
-                    _ => Err(RuntimeError::TypeError(
-                        format!("Value of type '{}' is not iterable", iterable_val.type_name())
-                    )),
+                    _ => Err(RuntimeError::TypeError(format!(
+                        "Value of type '{}' is not iterable",
+                        iterable_val.type_name()
+                    ))),
                 }
             }
 
@@ -326,23 +422,32 @@ impl Interpreter {
                 Ok(None)
             }
 
-            other => Err(RuntimeError::NotImplemented(format!("Statement: {:?}", other))),
+            other => Err(RuntimeError::NotImplemented(format!(
+                "Statement: {:?}",
+                other
+            ))),
         }
     }
 
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Literal { value, .. } => self.eval_literal(value),
-            Expr::Identifier { name, .. } => {
-                self.get_variable(name)
-                    .ok_or_else(|| RuntimeError::VariableNotFound(name.clone()))
-            }
-            Expr::Binary { left, operator, right, .. } => {
+            Expr::Identifier { name, .. } => self
+                .get_variable(name)
+                .ok_or_else(|| RuntimeError::VariableNotFound(name.clone())),
+            Expr::Binary {
+                left,
+                operator,
+                right,
+                ..
+            } => {
                 let l = self.eval_expr(left)?;
                 let r = self.eval_expr(right)?;
                 self.eval_binary_op(operator, l, r)
             }
-            Expr::Unary { operator, operand, .. } => {
+            Expr::Unary {
+                operator, operand, ..
+            } => {
                 let v = self.eval_expr(operand)?;
                 self.eval_unary_op(operator, v)
             }
@@ -354,7 +459,9 @@ impl Interpreter {
                     self.set_variable(name.clone(), val.clone());
                     Ok(val)
                 } else {
-                    Err(RuntimeError::TypeError("Invalid assignment target".to_string()))
+                    Err(RuntimeError::TypeError(
+                        "Invalid assignment target".to_string(),
+                    ))
                 }
             }
             Expr::Call { callee, args, .. } => {
@@ -370,21 +477,24 @@ impl Interpreter {
                 let idx = self.eval_expr(index)?;
                 self.eval_index_access(obj, idx)
             }
-            Expr::Member { object, property, .. } => {
+            Expr::Member {
+                object, property, ..
+            } => {
                 let obj = self.eval_expr(object)?;
                 match obj {
-                    Value::Object(map) => {
-                        Ok(map.get(property)
-                            .cloned()
-                            .unwrap_or(Value::Null))
-                    }
-                    _ => Err(RuntimeError::TypeError(
-                        format!("Cannot access property '{}' on {}", property, obj.type_name())
-                    )),
+                    Value::Object(map) => Ok(map.get(property).cloned().unwrap_or(Value::Null)),
+                    _ => Err(RuntimeError::TypeError(format!(
+                        "Cannot access property '{}' on {}",
+                        property,
+                        obj.type_name()
+                    ))),
                 }
             }
 
-            other => Err(RuntimeError::NotImplemented(format!("Expression: {:?}", other))),
+            other => Err(RuntimeError::NotImplemented(format!(
+                "Expression: {:?}",
+                other
+            ))),
         }
     }
 
@@ -395,7 +505,7 @@ impl Interpreter {
             Literal::Boolean(b) => Ok(Value::Bool(*b)),
             Literal::String(s) => Ok(Value::String(s.clone())),
             Literal::Null => Ok(Value::Null),
-            
+
             Literal::Array(arr) => {
                 let mut values = Vec::new();
                 for expr in arr {
@@ -403,7 +513,7 @@ impl Interpreter {
                 }
                 Ok(Value::Array(values))
             }
-            
+
             Literal::Object(props) => {
                 let mut map = HashMap::new();
                 for (key, expr) in props {
@@ -429,7 +539,12 @@ impl Interpreter {
         Ok(Value::String(result))
     }
 
-    fn eval_binary_op(&self, op: &BinaryOp, left: Value, right: Value) -> Result<Value, RuntimeError> {
+    fn eval_binary_op(
+        &self,
+        op: &BinaryOp,
+        left: Value,
+        right: Value,
+    ) -> Result<Value, RuntimeError> {
         use BinaryOp::*;
         use Value::*;
         match op {
@@ -441,88 +556,131 @@ impl Interpreter {
                 (String(a), String(b)) => Ok(String(a + &b)),
                 (String(a), b) => Ok(String(a + &b.to_string())),
                 (a, String(b)) => Ok(String(a.to_string() + &b)),
-                (a, b) => Err(RuntimeError::TypeError(format!("Add not supported for {} and {}", a.type_name(), b.type_name()))),
+                (a, b) => Err(RuntimeError::TypeError(format!(
+                    "Add not supported for {} and {}",
+                    a.type_name(),
+                    b.type_name()
+                ))),
             },
             Subtract => match (left, right) {
                 (Int(a), Int(b)) => Ok(Int(a - b)),
                 (Float(a), Float(b)) => Ok(Float(a - b)),
                 (Int(a), Float(b)) => Ok(Float(a as f64 - b)),
                 (Float(a), Int(b)) => Ok(Float(a - b as f64)),
-                (a, b) => Err(RuntimeError::TypeError(format!("Subtract not supported for {} and {}", a.type_name(), b.type_name()))),
+                (a, b) => Err(RuntimeError::TypeError(format!(
+                    "Subtract not supported for {} and {}",
+                    a.type_name(),
+                    b.type_name()
+                ))),
             },
             Multiply => match (left, right) {
                 (Int(a), Int(b)) => Ok(Int(a * b)),
                 (Float(a), Float(b)) => Ok(Float(a * b)),
                 (Int(a), Float(b)) => Ok(Float(a as f64 * b)),
                 (Float(a), Int(b)) => Ok(Float(a * b as f64)),
-                (a, b) => Err(RuntimeError::TypeError(format!("Multiply not supported for {} and {}", a.type_name(), b.type_name()))),
+                (a, b) => Err(RuntimeError::TypeError(format!(
+                    "Multiply not supported for {} and {}",
+                    a.type_name(),
+                    b.type_name()
+                ))),
             },
             Divide => match (left, right) {
-                (Int(_), Int(0)) | (Float(_), Float(0.0)) | (Int(_), Float(0.0)) | (Float(_), Int(0)) => Err(RuntimeError::DivisionByZero),
+                (Int(_), Int(0))
+                | (Float(_), Float(0.0))
+                | (Int(_), Float(0.0))
+                | (Float(_), Int(0)) => Err(RuntimeError::DivisionByZero),
                 (Int(a), Int(b)) => Ok(Int(a / b)),
                 (Float(a), Float(b)) => Ok(Float(a / b)),
                 (Int(a), Float(b)) => Ok(Float(a as f64 / b)),
                 (Float(a), Int(b)) => Ok(Float(a / b as f64)),
-                (a, b) => Err(RuntimeError::TypeError(format!("Divide not supported for {} and {}", a.type_name(), b.type_name()))),
+                (a, b) => Err(RuntimeError::TypeError(format!(
+                    "Divide not supported for {} and {}",
+                    a.type_name(),
+                    b.type_name()
+                ))),
             },
             Modulo => match (left, right) {
                 (Int(_), Int(0)) => Err(RuntimeError::DivisionByZero),
                 (Int(a), Int(b)) => Ok(Int(a % b)),
-                (a, b) => Err(RuntimeError::TypeError(format!("Modulo not supported for {} and {}", a.type_name(), b.type_name()))),
+                (a, b) => Err(RuntimeError::TypeError(format!(
+                    "Modulo not supported for {} and {}",
+                    a.type_name(),
+                    b.type_name()
+                ))),
             },
             Equal => Ok(Value::Bool(left == right)),
             NotEqual => Ok(Value::Bool(left != right)),
             Less => match (left, right) {
                 (Int(a), Int(b)) => Ok(Bool(a < b)),
                 (Float(a), Float(b)) => Ok(Bool(a < b)),
-                (a, b) => Err(RuntimeError::TypeError(format!("Less not supported for {} and {}", a.type_name(), b.type_name()))),
+                (a, b) => Err(RuntimeError::TypeError(format!(
+                    "Less not supported for {} and {}",
+                    a.type_name(),
+                    b.type_name()
+                ))),
             },
             Greater => match (left, right) {
                 (Int(a), Int(b)) => Ok(Bool(a > b)),
                 (Float(a), Float(b)) => Ok(Bool(a > b)),
-                (a, b) => Err(RuntimeError::TypeError(format!("Greater not supported for {} and {}", a.type_name(), b.type_name()))),
+                (a, b) => Err(RuntimeError::TypeError(format!(
+                    "Greater not supported for {} and {}",
+                    a.type_name(),
+                    b.type_name()
+                ))),
             },
             LessEqual => match (left, right) {
                 (Int(a), Int(b)) => Ok(Bool(a <= b)),
                 (Float(a), Float(b)) => Ok(Bool(a <= b)),
-                (a, b) => Err(RuntimeError::TypeError(format!("LessEqual not supported for {} and {}", a.type_name(), b.type_name()))),
+                (a, b) => Err(RuntimeError::TypeError(format!(
+                    "LessEqual not supported for {} and {}",
+                    a.type_name(),
+                    b.type_name()
+                ))),
             },
             GreaterEqual => match (left, right) {
                 (Int(a), Int(b)) => Ok(Bool(a >= b)),
                 (Float(a), Float(b)) => Ok(Bool(a >= b)),
-                (a, b) => Err(RuntimeError::TypeError(format!("GreaterEqual not supported for {} and {}", a.type_name(), b.type_name()))),
+                (a, b) => Err(RuntimeError::TypeError(format!(
+                    "GreaterEqual not supported for {} and {}",
+                    a.type_name(),
+                    b.type_name()
+                ))),
             },
             And => Ok(Bool(left.is_truthy() && right.is_truthy())),
             Or => Ok(Bool(left.is_truthy() || right.is_truthy())),
-            _ => Err(RuntimeError::NotImplemented(format!("Operator {:?} not implemented", op))),
+            _ => Err(RuntimeError::NotImplemented(format!(
+                "Operator {:?} not implemented",
+                op
+            ))),
         }
     }
 
     fn eval_unary_op(&self, op: &UnaryOp, operand: Value) -> Result<Value, RuntimeError> {
         use UnaryOp::*;
         use Value::*;
-        
+
         match (op, operand) {
-            (_Neg, Int(n)) => Ok(Int(-n)),
-            (_Neg, Float(f)) => Ok(Float(-f)),
+            (Minus, Int(n)) => Ok(Int(-n)),
+            (Minus, Float(f)) => Ok(Float(-f)),
             (Not, val) => Ok(Bool(!val.is_truthy())),
-            (_, val) => Err(RuntimeError::TypeError(
-                format!("Unary operation {:?} not supported for {}", op, val.type_name())
-            )),
+            (_, val) => Err(RuntimeError::TypeError(format!(
+                "Unary operation {:?} not supported for {}",
+                op,
+                val.type_name()
+            ))),
         }
     }
 
     fn eval_index_access(&self, object: Value, index: Value) -> Result<Value, RuntimeError> {
         match (object, index) {
             (Value::Array(arr), Value::Int(idx)) => {
-                let i = if idx < 0 {
-                    arr.len() as i64 + idx
-                } else {
-                    idx
-                };
-                
+                let i = if idx < 0 { arr.len() as i64 + idx } else { idx };
+
                 if i < 0 || i >= arr.len() as i64 {
-                    Err(RuntimeError::IndexError(format!("Index {} out of bounds", idx)))
+                    Err(RuntimeError::IndexError(format!(
+                        "Index {} out of bounds",
+                        idx
+                    )))
                 } else {
                     Ok(arr[i as usize].clone())
                 }
@@ -537,16 +695,21 @@ impl Interpreter {
                 } else {
                     idx
                 };
-                
+
                 if i < 0 || i >= chars.len() as i64 {
-                    Err(RuntimeError::IndexError(format!("Index {} out of bounds", idx)))
+                    Err(RuntimeError::IndexError(format!(
+                        "Index {} out of bounds",
+                        idx
+                    )))
                 } else {
                     Ok(Value::String(chars[i as usize].to_string()))
                 }
             }
-            (obj, idx) => Err(RuntimeError::TypeError(
-                format!("Cannot index {} with {}", obj.type_name(), idx.type_name())
-            )),
+            (obj, idx) => Err(RuntimeError::TypeError(format!(
+                "Cannot index {} with {}",
+                obj.type_name(),
+                idx.type_name()
+            ))),
         }
     }
 
@@ -558,30 +721,41 @@ impl Interpreter {
         match func {
             Value::NativeFunction { name, arity, func } => {
                 if args.len() != arity {
-                    return Err(RuntimeError::ArgumentError(
-                        format!("Function '{}' expects {} arguments, got {}", name, arity, args.len())
-                    ));
+                    return Err(RuntimeError::ArgumentError(format!(
+                        "Function '{}' expects {} arguments, got {}",
+                        name,
+                        arity,
+                        args.len()
+                    )));
                 }
                 func(&args)
             }
-            
-            Value::Function { name, params, body, closure: _ } => {
+
+            Value::Function {
+                name,
+                params,
+                body,
+                closure: _,
+            } => {
                 if args.len() != params.len() {
-                    return Err(RuntimeError::ArgumentError(
-                        format!("Function '{}' expects {} arguments, got {}", name, params.len(), args.len())
-                    ));
+                    return Err(RuntimeError::ArgumentError(format!(
+                        "Function '{}' expects {} arguments, got {}",
+                        name,
+                        params.len(),
+                        args.len()
+                    )));
                 }
-                
+
                 self.call_stack.push(name.clone());
-                
+
                 // Create new scope with closure and parameters
                 self.push_scope();
-                
+
                 // Bind parameters to arguments
                 for (param, arg) in params.iter().zip(args.iter()) {
                     self.set_variable(param.clone(), arg.clone());
                 }
-                
+
                 // Execute function body
                 let mut result = Value::Null;
                 for stmt in &body {
@@ -598,15 +772,16 @@ impl Interpreter {
                         }
                     }
                 }
-                
+
                 self.pop_scope();
                 self.call_stack.pop();
                 Ok(result)
             }
-            
-            _ => Err(RuntimeError::TypeError(
-                format!("Value of type '{}' is not callable", func.type_name())
-            )),
+
+            _ => Err(RuntimeError::TypeError(format!(
+                "Value of type '{}' is not callable",
+                func.type_name()
+            ))),
         }
     }
 
