@@ -1,0 +1,10 @@
+{
+  "name": "NovaOS-monorepo",
+  "private": true,
+  "scripts": {
+    "lint": "eslint \"**/*.{ts,tsx,svelte}\" --max-warnings=0 --no-error-on-unmatched-pattern"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  }
+}
