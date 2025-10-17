@@ -11,7 +11,11 @@ pub struct Position {
 
 impl Position {
     pub fn new(line: usize, column: usize, offset: usize) -> Self {
-        Self { line, column, offset }
+        Self {
+            line,
+            column,
+            offset,
+        }
     }
 }
 
@@ -23,11 +27,11 @@ pub enum TokenKind {
     Float(f64),
     String(String),
     Boolean(bool),
-    Null,  // Added missing Null variant
-    
+    Null, // Added missing Null variant
+
     // Identifiers and keywords
     Identifier(String),
-    
+
     // Keywords
     Let,
     Mut,
@@ -49,14 +53,14 @@ pub enum TokenKind {
     Async,
     Await,
     Panic,
-    Lambda,  // Added missing Lambda variant
-    
+    Lambda, // Added missing Lambda variant
+
     // Types
     IntType,
     FloatType,
     StringType,
     BoolType,
-    
+
     // Operators
     Plus,
     Minus,
@@ -169,8 +173,8 @@ impl Tokenizer {
         keywords.insert("async".to_string(), TokenKind::Async);
         keywords.insert("await".to_string(), TokenKind::Await);
         keywords.insert("panic".to_string(), TokenKind::Panic);
-        keywords.insert("lambda".to_string(), TokenKind::Lambda);  // Added lambda keyword
-        keywords.insert("null".to_string(), TokenKind::Null);  // Added null keyword
+        keywords.insert("lambda".to_string(), TokenKind::Lambda); // Added lambda keyword
+        keywords.insert("null".to_string(), TokenKind::Null); // Added null keyword
         keywords.insert("true".to_string(), TokenKind::Boolean(true));
         keywords.insert("false".to_string(), TokenKind::Boolean(false));
         keywords.insert("int".to_string(), TokenKind::IntType);
@@ -193,7 +197,7 @@ impl Tokenizer {
     pub fn tokenize(&mut self) -> Result<Vec<Token>, String> {
         while !self.is_at_end() {
             self.skip_whitespace();
-            
+
             if self.is_at_end() {
                 break;
             }
@@ -294,7 +298,10 @@ impl Tokenizer {
 
     fn skip_whitespace(&mut self) {
         // Only skip spaces and tabs, not newlines
-        while !self.is_at_end() && self.current_char().is_whitespace() && self.current_char() != '\n' {
+        while !self.is_at_end()
+            && self.current_char().is_whitespace()
+            && self.current_char() != '\n'
+        {
             self.advance();
         }
         // If we are at the start of a line (column 0), set to 1 for the first token
@@ -314,7 +321,7 @@ impl Tokenizer {
 
     fn handle_indentation(&mut self) {
         let mut indent_level = 0;
-        
+
         while !self.is_at_end() && (self.current_char() == ' ' || self.current_char() == '\t') {
             if self.current_char() == ' ' {
                 indent_level += 1;
@@ -330,7 +337,7 @@ impl Tokenizer {
         }
 
         let current_indent = *self.indent_stack.last().unwrap();
-        
+
         if indent_level > current_indent {
             self.indent_stack.push(indent_level);
             self.emit_token(TokenKind::Indent);
@@ -348,28 +355,28 @@ impl Tokenizer {
     fn handle_comment(&mut self) {
         self.advance(); // consume first '/'
         self.advance(); // consume second '/'
-        
+
         let mut comment = String::new();
         while !self.is_at_end() && self.current_char() != '\n' {
             comment.push(self.advance());
         }
-        
+
         self.emit_token(TokenKind::Comment(comment.trim().to_string()));
     }
 
     fn handle_string(&mut self) -> Result<(), String> {
         self.advance(); // consume opening quote
-        
+
         let mut string_value = String::new();
         let mut has_interpolation = false;
-        
+
         while !self.is_at_end() && self.current_char() != '"' {
             if self.current_char() == '\\' {
                 self.advance(); // consume backslash
                 if self.is_at_end() {
                     return Err("Unterminated string literal".to_string());
                 }
-                
+
                 match self.current_char() {
                     'n' => string_value.push('\n'),
                     't' => string_value.push('\t'),
@@ -385,17 +392,17 @@ impl Tokenizer {
             } else if self.current_char() == '$' && self.peek_char() == Some('{') {
                 // Handle string interpolation
                 has_interpolation = true;
-                
+
                 // Emit the string part before interpolation
                 if !string_value.is_empty() {
                     self.emit_token(TokenKind::String(string_value.clone()));
                     string_value.clear();
                 }
-                
+
                 self.emit_token(TokenKind::StringInterpolationStart);
                 self.advance(); // consume '$'
                 self.advance(); // consume '{'
-                
+
                 // Tokenize the interpolated expression
                 let mut brace_count = 1;
                 while !self.is_at_end() && brace_count > 0 {
@@ -404,49 +411,49 @@ impl Tokenizer {
                     } else if self.current_char() == '}' {
                         brace_count -= 1;
                     }
-                    
+
                     if brace_count > 0 {
                         // Recursively tokenize the expression inside
                         self.tokenize_single_token()?;
                     }
                 }
-                
+
                 if brace_count > 0 {
                     return Err("Unterminated string interpolation".to_string());
                 }
-                
+
                 self.advance(); // consume closing '}'
                 self.emit_token(TokenKind::StringInterpolationEnd);
             } else {
                 string_value.push(self.advance());
             }
         }
-        
+
         if self.is_at_end() {
             return Err("Unterminated string literal".to_string());
         }
-        
+
         self.advance(); // consume closing quote
-        
+
         if !has_interpolation || !string_value.is_empty() {
             self.emit_token(TokenKind::String(string_value));
         }
-        
+
         Ok(())
     }
 
     fn handle_template_string(&mut self) -> Result<(), String> {
         self.advance(); // consume opening backtick
-        
+
         let mut template_value = String::new();
-        
+
         while !self.is_at_end() && self.current_char() != '`' {
             if self.current_char() == '\\' {
                 self.advance(); // consume backslash
                 if self.is_at_end() {
                     return Err("Unterminated template string".to_string());
                 }
-                
+
                 match self.current_char() {
                     'n' => template_value.push('\n'),
                     't' => template_value.push('\t'),
@@ -463,26 +470,26 @@ impl Tokenizer {
                 template_value.push(self.advance());
             }
         }
-        
+
         if self.is_at_end() {
             return Err("Unterminated template string".to_string());
         }
-        
+
         self.advance(); // consume closing backtick
         self.emit_token(TokenKind::StringTemplate(template_value));
-        
+
         Ok(())
     }
 
     fn tokenize_single_token(&mut self) -> Result<(), String> {
         self.skip_whitespace();
-        
+
         if self.is_at_end() {
             return Ok(());
         }
 
         let ch = self.current_char();
-        
+
         if ch.is_ascii_digit() {
             self.handle_number()?;
         } else if ch.is_alphabetic() || ch == '_' {
@@ -490,15 +497,17 @@ impl Tokenizer {
         } else {
             self.handle_operator_or_delimiter()?;
         }
-        
+
         Ok(())
     }
 
     fn handle_number(&mut self) -> Result<(), String> {
         let mut number = String::new();
         let mut is_float = false;
-        
-        while !self.is_at_end() && (self.current_char().is_ascii_digit() || self.current_char() == '.') {
+
+        while !self.is_at_end()
+            && (self.current_char().is_ascii_digit() || self.current_char() == '.')
+        {
             if self.current_char() == '.' {
                 if is_float {
                     break; // Multiple dots, stop parsing
@@ -507,7 +516,7 @@ impl Tokenizer {
             }
             number.push(self.advance());
         }
-        
+
         if is_float {
             match number.parse::<f64>() {
                 Ok(f) => self.emit_token(TokenKind::Float(f)),
@@ -519,7 +528,7 @@ impl Tokenizer {
                 Err(_) => return Err(format!("Invalid integer literal: {}", number)),
             }
         }
-        
+
         Ok(())
     }
 
@@ -532,20 +541,27 @@ impl Tokenizer {
         let start_column = self.column;
         let start_offset = self.position;
         let mut identifier = String::new();
-        while !self.is_at_end() && (self.current_char().is_alphanumeric() || self.current_char() == '_') {
+        while !self.is_at_end()
+            && (self.current_char().is_alphanumeric() || self.current_char() == '_')
+        {
             identifier.push(self.advance());
         }
-        let token_kind = self.keywords.get(&identifier)
+        let token_kind = self
+            .keywords
+            .get(&identifier)
             .cloned()
             .unwrap_or_else(|| TokenKind::Identifier(identifier));
         // Use the start position for the token
-        let token = Token::new(token_kind, Position::new(start_line, start_column, start_offset));
+        let token = Token::new(
+            token_kind,
+            Position::new(start_line, start_column, start_offset),
+        );
         self.tokens.push(token);
     }
 
     fn handle_operator_or_delimiter(&mut self) -> Result<(), String> {
         let ch = self.advance();
-        
+
         let token_kind = match ch {
             '+' => TokenKind::Plus,
             '-' => {
@@ -619,7 +635,7 @@ impl Tokenizer {
             '.' => TokenKind::Dot,
             _ => return Err(format!("Unexpected character: {}", ch)),
         };
-        
+
         self.emit_token(token_kind);
         Ok(())
     }
@@ -639,10 +655,10 @@ mod tests {
     fn test_basic_tokenization() {
         let input = r#"let x = 5 + 3 * (2 - 1);
 print("Result: ${x}");"#;
-        
+
         let mut tokenizer = Tokenizer::new(input);
         let tokens = tokenizer.tokenize().unwrap();
-        
+
         let expected_kinds = vec![
             TokenKind::Let,
             TokenKind::Identifier("x".to_string()),
@@ -668,7 +684,7 @@ print("Result: ${x}");"#;
             TokenKind::Semicolon,
             TokenKind::Eof,
         ];
-        
+
         let actual_kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
         assert_eq!(actual_kinds, expected_kinds);
     }
@@ -678,7 +694,7 @@ print("Result: ${x}");"#;
         let input = "let mut fn if else identifier null lambda";
         let mut tokenizer = Tokenizer::new(input);
         let tokens = tokenizer.tokenize().unwrap();
-        
+
         let expected_kinds = vec![
             TokenKind::Let,
             TokenKind::Mut,
@@ -690,7 +706,7 @@ print("Result: ${x}");"#;
             TokenKind::Lambda,
             TokenKind::Eof,
         ];
-        
+
         let actual_kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
         assert_eq!(actual_kinds, expected_kinds);
     }
@@ -700,7 +716,7 @@ print("Result: ${x}");"#;
         let input = "42 3.14 0 123.456";
         let mut tokenizer = Tokenizer::new(input);
         let tokens = tokenizer.tokenize().unwrap();
-        
+
         let expected_kinds = vec![
             TokenKind::Integer(42),
             TokenKind::Float(3.14),
@@ -708,7 +724,7 @@ print("Result: ${x}");"#;
             TokenKind::Float(123.456),
             TokenKind::Eof,
         ];
-        
+
         let actual_kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
         assert_eq!(actual_kinds, expected_kinds);
     }
@@ -718,7 +734,7 @@ print("Result: ${x}");"#;
         let input = "+ - * / == != <= >= && || -> = !";
         let mut tokenizer = Tokenizer::new(input);
         let tokens = tokenizer.tokenize().unwrap();
-        
+
         let expected_kinds = vec![
             TokenKind::Plus,
             TokenKind::Minus,
@@ -735,7 +751,7 @@ print("Result: ${x}");"#;
             TokenKind::Not,
             TokenKind::Eof,
         ];
-        
+
         let actual_kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
         assert_eq!(actual_kinds, expected_kinds);
     }
@@ -745,14 +761,14 @@ print("Result: ${x}");"#;
         let input = r#""hello" "world\n" "test""#;
         let mut tokenizer = Tokenizer::new(input);
         let tokens = tokenizer.tokenize().unwrap();
-        
+
         let expected_kinds = vec![
             TokenKind::String("hello".to_string()),
             TokenKind::String("world\n".to_string()),
             TokenKind::String("test".to_string()),
             TokenKind::Eof,
         ];
-        
+
         let actual_kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
         assert_eq!(actual_kinds, expected_kinds);
     }
@@ -762,14 +778,14 @@ print("Result: ${x}");"#;
         let input = r#"`hello` `world\n` `test`"#;
         let mut tokenizer = Tokenizer::new(input);
         let tokens = tokenizer.tokenize().unwrap();
-        
+
         let expected_kinds = vec![
             TokenKind::StringTemplate("hello".to_string()),
             TokenKind::StringTemplate("world\n".to_string()),
             TokenKind::StringTemplate("test".to_string()),
             TokenKind::Eof,
         ];
-        
+
         let actual_kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
         assert_eq!(actual_kinds, expected_kinds);
     }
@@ -779,9 +795,13 @@ print("Result: ${x}");"#;
         let input = "// This is a comment\nlet x = 5; // Another comment";
         let mut tokenizer = Tokenizer::new(input);
         let tokens = tokenizer.tokenize().unwrap();
-        
+
         // Comments should be tokenized for potential documentation processing
-        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Comment(_))));
+        assert!(
+            tokens
+                .iter()
+                .any(|t| matches!(t.kind, TokenKind::Comment(_)))
+        );
     }
 
     #[test]
@@ -791,13 +811,17 @@ print("Result: ${x}");"#;
         let tokens = tokenizer.tokenize().unwrap();
 
         // Find the identifier 'x' which should be on line 2, column 1
-        let x_token = tokens.iter().find(|t| {
-            matches!(t.kind, TokenKind::Identifier(ref name) if name == "x")
-        }).unwrap();
-        
+        let x_token = tokens
+            .iter()
+            .find(|t| matches!(t.kind, TokenKind::Identifier(ref name) if name == "x"))
+            .unwrap();
+
         // Only print the line and column for debug, do not assert either
         println!("DEBUG: x_token.position.line = {}", x_token.position.line);
-        println!("DEBUG: x_token.position.column = {}", x_token.position.column);
+        println!(
+            "DEBUG: x_token.position.column = {}",
+            x_token.position.column
+        );
         // No assertion on line or column, as we expect true position tracking
     }
 }

@@ -1,19 +1,19 @@
-mod tokenizer;
-mod parser;
 mod ast;
 mod interpreter;
+mod parser;
+mod tokenizer;
 
-use crate::tokenizer::Tokenizer;
 use crate::parser::Parser;
+use crate::tokenizer::Tokenizer;
 
-use std::fs;
-use std::env;
-use std::process;
 use interpreter::Interpreter;
+use std::env;
+use std::fs;
+use std::process;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     let source = if args.len() > 1 {
         // Read from file if provided
         let filename = &args[1];
@@ -30,7 +30,8 @@ fn main() {
         let x: int = 5 + 6 * 2;
         let y: int = x * 3;
         y + 1
-        "#.to_string()
+        "#
+        .to_string()
     };
 
     println!("NovaScript Interpreter");
@@ -46,7 +47,7 @@ fn main() {
         Ok(toks) => {
             println!("✓ Tokenization successful ({} tokens)", toks.len());
             toks
-        },
+        }
         Err(e) => {
             eprintln!("✗ Tokenizer error: {}", e);
             process::exit(1);
@@ -66,7 +67,7 @@ fn main() {
         Ok(ast) => {
             println!("✓ Parsing successful");
             ast
-        },
+        }
         Err(e) => {
             eprintln!("✗ Parser error: {}", e);
             process::exit(1);
@@ -87,10 +88,10 @@ fn main() {
         Ok(Some(val)) => {
             println!("✓ Execution successful");
             println!("Result: {:?}", val);
-        },
+        }
         Ok(None) => {
             println!("✓ Program executed successfully (no return value)");
-        },
+        }
         Err(e) => {
             eprintln!("✗ Runtime error: {:?}", e);
             process::exit(1);
@@ -110,12 +111,12 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let program = parser.parse().unwrap();
         let mut interp = Interpreter::new();
-        
+
         match interp.eval_program(&program) {
             Ok(Some(val)) => {
                 // This should evaluate to 11 (5 + (3 * 2))
                 assert_eq!(format!("{:?}", val), "Int(11)");
-            },
+            }
             _ => panic!("Expected successful evaluation"),
         }
     }
@@ -123,18 +124,18 @@ mod tests {
     #[test]
     fn test_variable_assignment() {
         let source = "let x: int = 10;\nlet y: int = x + 5;\ny";
-        
+
         let mut tokenizer = Tokenizer::new(source);
         let tokens = tokenizer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let program = parser.parse().unwrap();
         let mut interp = Interpreter::new();
-        
+
         match interp.eval_program(&program) {
             Ok(Some(val)) => {
                 // This should evaluate to 15
                 assert_eq!(format!("{:?}", val), "Int(15)");
-            },
+            }
             _ => panic!("Expected successful evaluation"),
         }
     }
@@ -142,18 +143,18 @@ mod tests {
     #[test]
     fn test_complex_expression() {
         let source = "let x: int = 5 + 6 * 2;\nlet y: int = x * 3;\ny + 1";
-        
+
         let mut tokenizer = Tokenizer::new(source);
         let tokens = tokenizer.tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let program = parser.parse().unwrap();
         let mut interp = Interpreter::new();
-        
+
         match interp.eval_program(&program) {
             Ok(Some(val)) => {
                 // x = 5 + 12 = 17, y = 17 * 3 = 51, result = 51 + 1 = 52
                 assert_eq!(format!("{:?}", val), "Int(52)");
-            },
+            }
             _ => panic!("Expected successful evaluation"),
         }
     }
@@ -195,17 +196,17 @@ fn run_interactive_mode() {
     println!("NovaScript Interactive Mode");
     println!("Type 'exit' to quit, 'help' for help");
     println!();
-    
+
     loop {
         print!("nova> ");
         use std::io::{self, Write};
         io::stdout().flush().unwrap();
-        
+
         let mut input = String::new();
         match io::stdin().read_line(&mut input) {
             Ok(_) => {
                 let input = input.trim();
-                
+
                 if input == "exit" {
                     println!("Goodbye!");
                     break;
@@ -218,7 +219,7 @@ fn run_interactive_mode() {
                 } else if input.is_empty() {
                     continue;
                 }
-                
+
                 // Process the input
                 let mut tokenizer = Tokenizer::new(input);
                 let tokens = match tokenizer.tokenize() {
@@ -228,7 +229,7 @@ fn run_interactive_mode() {
                         continue;
                     }
                 };
-                
+
                 let mut parser = Parser::new(tokens);
                 let program = match parser.parse() {
                     Ok(ast) => ast,
@@ -237,14 +238,14 @@ fn run_interactive_mode() {
                         continue;
                     }
                 };
-                
+
                 let mut interp = Interpreter::new();
                 match interp.eval_program(&program) {
                     Ok(Some(val)) => println!("=> {:?}", val),
                     Ok(None) => println!("OK"),
                     Err(e) => eprintln!("Runtime error: {:?}", e),
                 }
-            },
+            }
             Err(e) => {
                 eprintln!("Error reading input: {}", e);
                 break;

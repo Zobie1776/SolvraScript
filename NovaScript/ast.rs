@@ -29,14 +29,22 @@ impl Type {
             Type::Null => "null".to_string(),
             Type::Array(inner) => format!("[{}]", inner.to_string()),
             Type::Object(fields) => {
-                let field_strs: Vec<String> = fields.iter()
+                let field_strs: Vec<String> = fields
+                    .iter()
                     .map(|(k, v)| format!("{}: {}", k, v.to_string()))
                     .collect();
                 format!("{{{}}}", field_strs.join(", "))
             }
-            Type::Function { params, return_type } => {
+            Type::Function {
+                params,
+                return_type,
+            } => {
                 let param_types: Vec<String> = params.iter().map(|p| p.to_string()).collect();
-                format!("({}) -> {}", param_types.join(", "), return_type.to_string())
+                format!(
+                    "({}) -> {}",
+                    param_types.join(", "),
+                    return_type.to_string()
+                )
             }
             Type::Custom(name) => name.clone(),
             Type::Inferred => "auto".to_string(),
@@ -627,7 +635,10 @@ impl<T> AstVisitor<T> {
 /// AST utility functions
 impl Program {
     pub fn new(statements: Vec<Stmt>, position: Position) -> Self {
-        Self { statements, position }
+        Self {
+            statements,
+            position,
+        }
     }
 
     /// Find all function declarations in the program
@@ -764,7 +775,12 @@ impl Expr {
         }
     }
 
-    pub fn conditional(condition: Expr, then_expr: Expr, else_expr: Expr, position: Position) -> Self {
+    pub fn conditional(
+        condition: Expr,
+        then_expr: Expr,
+        else_expr: Expr,
+        position: Position,
+    ) -> Self {
         Expr::Conditional {
             condition: Box::new(condition),
             then_expr: Box::new(then_expr),
@@ -781,7 +797,12 @@ impl Expr {
         Expr::Tuple { elements, position }
     }
 
-    pub fn range(start: Option<Expr>, end: Option<Expr>, step: Option<Expr>, position: Position) -> Self {
+    pub fn range(
+        start: Option<Expr>,
+        end: Option<Expr>,
+        step: Option<Expr>,
+        position: Position,
+    ) -> Self {
         Expr::Range {
             start: start.map(Box::new),
             end: end.map(Box::new),
@@ -820,7 +841,12 @@ impl Stmt {
         Stmt::ExportDecl { decl }
     }
 
-    pub fn if_stmt(condition: Expr, then_branch: Stmt, else_branch: Option<Stmt>, position: Position) -> Self {
+    pub fn if_stmt(
+        condition: Expr,
+        then_branch: Stmt,
+        else_branch: Option<Stmt>,
+        position: Position,
+    ) -> Self {
         Stmt::If {
             condition,
             then_branch: Box::new(then_branch),
@@ -847,7 +873,10 @@ impl Stmt {
     }
 
     pub fn block(statements: Vec<Stmt>, position: Position) -> Self {
-        Stmt::Block { statements, position }
+        Stmt::Block {
+            statements,
+            position,
+        }
     }
 
     pub fn return_stmt(value: Option<Expr>, position: Position) -> Self {
@@ -862,7 +891,12 @@ impl Stmt {
         Stmt::Continue { label, position }
     }
 
-    pub fn try_stmt(try_block: Stmt, catch_blocks: Vec<CatchBlock>, finally_block: Option<Stmt>, position: Position) -> Self {
+    pub fn try_stmt(
+        try_block: Stmt,
+        catch_blocks: Vec<CatchBlock>,
+        finally_block: Option<Stmt>,
+        position: Position,
+    ) -> Self {
         Stmt::Try {
             try_block: Box::new(try_block),
             catch_blocks,
@@ -887,10 +921,19 @@ impl Stmt {
     }
 
     pub fn match_stmt(expr: Expr, arms: Vec<MatchArm>, position: Position) -> Self {
-        Stmt::Match { expr, arms, position }
+        Stmt::Match {
+            expr,
+            arms,
+            position,
+        }
     }
 
-    pub fn switch_stmt(expr: Expr, cases: Vec<SwitchCase>, default_case: Option<Stmt>, position: Position) -> Self {
+    pub fn switch_stmt(
+        expr: Expr,
+        cases: Vec<SwitchCase>,
+        default_case: Option<Stmt>,
+        position: Position,
+    ) -> Self {
         Stmt::Switch {
             expr,
             cases,
@@ -943,7 +986,13 @@ mod tests {
         let pos = Position::new(1, 1, 0);
         // Test literal creation
         let literal = Expr::literal(Literal::Integer(42), pos.clone());
-        assert!(matches!(literal, Expr::Literal { value: Literal::Integer(42), .. }));
+        assert!(matches!(
+            literal,
+            Expr::Literal {
+                value: Literal::Integer(42),
+                ..
+            }
+        ));
         // Test identifier creation
         let identifier = Expr::identifier("x".to_string(), pos.clone());
         assert!(matches!(identifier, Expr::Identifier { name, .. } if name == "x"));
@@ -956,10 +1005,28 @@ mod tests {
         let left = Expr::literal(Literal::Integer(5), pos.clone());
         let right = Expr::literal(Literal::Integer(3), pos.clone());
         let binary = Expr::binary(left.clone(), BinaryOp::Add, right.clone(), pos.clone());
-        if let Expr::Binary { left: l, operator, right: r, .. } = binary {
-            assert!(matches!(*l, Expr::Literal { value: Literal::Integer(5), .. }));
+        if let Expr::Binary {
+            left: l,
+            operator,
+            right: r,
+            ..
+        } = binary
+        {
+            assert!(matches!(
+                *l,
+                Expr::Literal {
+                    value: Literal::Integer(5),
+                    ..
+                }
+            ));
             assert_eq!(operator, BinaryOp::Add);
-            assert!(matches!(*r, Expr::Literal { value: Literal::Integer(3), .. }));
+            assert!(matches!(
+                *r,
+                Expr::Literal {
+                    value: Literal::Integer(3),
+                    ..
+                }
+            ));
         } else {
             panic!("Expected binary expression");
         }
@@ -1037,7 +1104,10 @@ mod tests {
             guard: Some(guard),
             body,
         };
-        assert!(matches!(match_arm.pattern, Pattern::Literal(Literal::Integer(42))));
+        assert!(matches!(
+            match_arm.pattern,
+            Pattern::Literal(Literal::Integer(42))
+        ));
         assert!(match_arm.guard.is_some());
     }
 
@@ -1069,7 +1139,7 @@ mod tests {
             Expr::literal(Literal::Integer(1), pos.clone()),
             BinaryOp::Add,
             Expr::literal(Literal::Integer(2), pos.clone()),
-            pos.clone()
+            pos.clone(),
         );
         assert_eq!(binary_expr.position(), &pos);
     }
@@ -1080,7 +1150,7 @@ mod tests {
         // Test position retrieval for statements
         let expr_stmt = Stmt::expression(
             Expr::literal(Literal::Integer(42), pos.clone()),
-            pos.clone()
+            pos.clone(),
         );
         assert_eq!(expr_stmt.position(), &pos);
         let block_stmt = Stmt::block(vec![], pos.clone());
@@ -1107,10 +1177,13 @@ mod tests {
             initializer: None,
             position: pos.clone(),
         };
-        let program = Program::new(vec![
-            Stmt::function_decl(func_decl),
-            Stmt::variable_decl(var_decl),
-        ], pos.clone());
+        let program = Program::new(
+            vec![
+                Stmt::function_decl(func_decl),
+                Stmt::variable_decl(var_decl),
+            ],
+            pos.clone(),
+        );
         assert_eq!(program.find_functions().len(), 1);
         assert_eq!(program.find_variables().len(), 1);
         assert_eq!(program.find_classes().len(), 0);
@@ -1129,7 +1202,7 @@ mod tests {
         let null_lit = Literal::Null;
         let array_lit = Literal::Array(vec![]);
         let object_lit = Literal::Object(Vec::new());
-        
+
         assert!(matches!(int_lit, Literal::Integer(42)));
         assert!(matches!(float_lit, Literal::Float(f) if (f - 3.14).abs() < f64::EPSILON));
         assert!(matches!(string_lit, Literal::String(ref s) if s == "hello"));
@@ -1148,11 +1221,14 @@ mod tests {
         let list_pattern = Pattern::List(vec![]);
         let object_pattern = Pattern::Object(Vec::new());
         let tuple_pattern = Pattern::Tuple(vec![]);
-        assert!(matches!(int_pattern, Pattern::Literal(Literal::Integer(42))));
+        assert!(matches!(
+            int_pattern,
+            Pattern::Literal(Literal::Integer(42))
+        ));
         assert!(matches!(id_pattern, Pattern::Identifier(ref s) if s == "x"));
         assert!(matches!(wildcard_pattern, Pattern::Wildcard));
         assert!(matches!(list_pattern, Pattern::List(_)));
-        assert!(matches!(object_pattern, Pattern::Object(_))); 
+        assert!(matches!(object_pattern, Pattern::Object(_)));
         assert!(matches!(tuple_pattern, Pattern::Tuple(_)));
     }
 
@@ -1167,12 +1243,29 @@ mod tests {
     fn test_binary_operators() {
         // Test all binary operators for Eq/Clone
         let ops = vec![
-            BinaryOp::Add, BinaryOp::Subtract, BinaryOp::Multiply, BinaryOp::Divide,
-            BinaryOp::Modulo, BinaryOp::Power, BinaryOp::Equal, BinaryOp::NotEqual,
-            BinaryOp::Less, BinaryOp::Greater, BinaryOp::LessEqual, BinaryOp::GreaterEqual,
-            BinaryOp::And, BinaryOp::Or, BinaryOp::BitwiseAnd, BinaryOp::BitwiseOr,
-            BinaryOp::BitwiseXor, BinaryOp::LeftShift, BinaryOp::RightShift,
-            BinaryOp::In, BinaryOp::NotIn, BinaryOp::Is, BinaryOp::IsNot,
+            BinaryOp::Add,
+            BinaryOp::Subtract,
+            BinaryOp::Multiply,
+            BinaryOp::Divide,
+            BinaryOp::Modulo,
+            BinaryOp::Power,
+            BinaryOp::Equal,
+            BinaryOp::NotEqual,
+            BinaryOp::Less,
+            BinaryOp::Greater,
+            BinaryOp::LessEqual,
+            BinaryOp::GreaterEqual,
+            BinaryOp::And,
+            BinaryOp::Or,
+            BinaryOp::BitwiseAnd,
+            BinaryOp::BitwiseOr,
+            BinaryOp::BitwiseXor,
+            BinaryOp::LeftShift,
+            BinaryOp::RightShift,
+            BinaryOp::In,
+            BinaryOp::NotIn,
+            BinaryOp::Is,
+            BinaryOp::IsNot,
         ];
         for op in ops {
             assert_eq!(op, op.clone());
@@ -1183,7 +1276,10 @@ mod tests {
     fn test_unary_operators() {
         // Test all unary operators for Eq/Clone
         let ops = vec![
-            UnaryOp::Not, UnaryOp::Minus, UnaryOp::Plus, UnaryOp::BitwiseNot,
+            UnaryOp::Not,
+            UnaryOp::Minus,
+            UnaryOp::Plus,
+            UnaryOp::BitwiseNot,
         ];
         for op in ops {
             assert_eq!(op, op.clone());
@@ -1197,7 +1293,7 @@ mod tests {
         let lambda = Expr::lambda(
             vec![],
             Expr::literal(Literal::Integer(42), pos.clone()),
-            pos.clone()
+            pos.clone(),
         );
         assert!(matches!(lambda, Expr::Lambda { .. }));
         // Test conditional expression
@@ -1205,27 +1301,33 @@ mod tests {
             Expr::literal(Literal::Boolean(true), pos.clone()),
             Expr::literal(Literal::Integer(1), pos.clone()),
             Expr::literal(Literal::Integer(2), pos.clone()),
-            pos.clone()
+            pos.clone(),
         );
         assert!(matches!(conditional, Expr::Conditional { .. }));
         // Test list expression
-        let list = Expr::list(vec![
-            Expr::literal(Literal::Integer(1), pos.clone()),
-            Expr::literal(Literal::Integer(2), pos.clone()),
-        ], pos.clone());
+        let list = Expr::list(
+            vec![
+                Expr::literal(Literal::Integer(1), pos.clone()),
+                Expr::literal(Literal::Integer(2), pos.clone()),
+            ],
+            pos.clone(),
+        );
         assert!(matches!(list, Expr::List { .. }));
         // Test tuple expression
-        let tuple = Expr::tuple(vec![
-            Expr::literal(Literal::String("hello".to_string()), pos.clone()),
-            Expr::literal(Literal::Integer(42), pos.clone()),
-        ], pos.clone());
+        let tuple = Expr::tuple(
+            vec![
+                Expr::literal(Literal::String("hello".to_string()), pos.clone()),
+                Expr::literal(Literal::Integer(42), pos.clone()),
+            ],
+            pos.clone(),
+        );
         assert!(matches!(tuple, Expr::Tuple { .. }));
         // Test range expression
         let range = Expr::range(
             Some(Expr::literal(Literal::Integer(1), pos.clone())),
             Some(Expr::literal(Literal::Integer(10), pos.clone())),
             None,
-            pos.clone()
+            pos.clone(),
         );
         assert!(matches!(range, Expr::Range { .. }));
     }
@@ -1236,15 +1338,12 @@ mod tests {
         // Test if statement
         let if_stmt = Stmt::if_stmt(
             Expr::literal(Literal::Boolean(true), pos.clone()),
-            Stmt::expression(
-                Expr::literal(Literal::Integer(1), pos.clone()),
-                pos.clone()
-            ),
+            Stmt::expression(Expr::literal(Literal::Integer(1), pos.clone()), pos.clone()),
             Some(Stmt::expression(
                 Expr::literal(Literal::Integer(2), pos.clone()),
-                pos.clone()
+                pos.clone(),
             )),
-            pos.clone()
+            pos.clone(),
         );
         assert!(matches!(if_stmt, Stmt::If { .. }));
         // Test while statement
@@ -1252,9 +1351,9 @@ mod tests {
             Expr::literal(Literal::Boolean(true), pos.clone()),
             Stmt::expression(
                 Expr::literal(Literal::Integer(42), pos.clone()),
-                pos.clone()
+                pos.clone(),
             ),
-            pos.clone()
+            pos.clone(),
         );
         assert!(matches!(while_stmt, Stmt::While { .. }));
         // Test for statement
@@ -1263,9 +1362,9 @@ mod tests {
             Expr::literal(Literal::Array(vec![]), pos.clone()),
             Stmt::expression(
                 Expr::literal(Literal::Integer(42), pos.clone()),
-                pos.clone()
+                pos.clone(),
             ),
-            pos.clone()
+            pos.clone(),
         );
         assert!(matches!(for_stmt, Stmt::For { .. }));
     }
@@ -1416,10 +1515,7 @@ impl ImportDecl {
 
 impl ExportDecl {
     pub fn new(item: ExportItem, position: Position) -> Self {
-        Self {
-            item,
-            position,
-        }
+        Self { item, position }
     }
 }
 
@@ -1457,22 +1553,51 @@ impl std::fmt::Display for AstError {
         match self {
             AstError::InvalidExpression(msg) => write!(f, "Invalid expression: {}", msg),
             AstError::InvalidStatement(msg) => write!(f, "Invalid statement: {}", msg),
-            AstError::TypeMismatch { expected, found, position } => {
-                write!(f, "Type mismatch at {}:{}: expected {}, found {}", 
-                    position.line, position.column, expected.to_string(), found.to_string())
+            AstError::TypeMismatch {
+                expected,
+                found,
+                position,
+            } => {
+                write!(
+                    f,
+                    "Type mismatch at {}:{}: expected {}, found {}",
+                    position.line,
+                    position.column,
+                    expected.to_string(),
+                    found.to_string()
+                )
             }
             AstError::UndefinedVariable { name, position } => {
-                write!(f, "Undefined variable '{}' at {}:{}", name, position.line, position.column)
+                write!(
+                    f,
+                    "Undefined variable '{}' at {}:{}",
+                    name, position.line, position.column
+                )
             }
             AstError::UndefinedFunction { name, position } => {
-                write!(f, "Undefined function '{}' at {}:{}", name, position.line, position.column)
+                write!(
+                    f,
+                    "Undefined function '{}' at {}:{}",
+                    name, position.line, position.column
+                )
             }
-            AstError::InvalidArguments { expected, found, position } => {
-                write!(f, "Invalid number of arguments at {}:{}: expected {}, found {}", 
-                    position.line, position.column, expected, found)
+            AstError::InvalidArguments {
+                expected,
+                found,
+                position,
+            } => {
+                write!(
+                    f,
+                    "Invalid number of arguments at {}:{}: expected {}, found {}",
+                    position.line, position.column, expected, found
+                )
             }
             AstError::DuplicateDeclaration { name, position } => {
-                write!(f, "Duplicate declaration of '{}' at {}:{}", name, position.line, position.column)
+                write!(
+                    f,
+                    "Duplicate declaration of '{}' at {}:{}",
+                    name, position.line, position.column
+                )
             }
         }
     }
