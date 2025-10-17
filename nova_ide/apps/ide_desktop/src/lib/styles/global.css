@@ -1,0 +1,37 @@
+:root {
+  font-family: 'Fira Code', monospace;
+  color: var(--foreground-primary);
+  background-color: var(--background-primary);
+}
+
+body {
+  margin: 0;
+  background-color: var(--background-primary);
+  color: var(--foreground-primary);
+}
+
+body[data-theme='dark'] {
+  --background-primary: #101418;
+  --foreground-primary: #e8f1f8;
+  --accent: #3f8cff;
+}
+
+body[data-theme='light'] {
+  --background-primary: #f8fafc;
+  --foreground-primary: #0f172a;
+  --accent: #2563eb;
+}
+
+body[data-theme='solarized'] {
+  --background-primary: #002b36;
+  --foreground-primary: #fdf6e3;
+  --accent: #b58900;
+}
+
+a {
+  color: inherit;
+}
+
+* {
+  box-sizing: border-box;
+}
