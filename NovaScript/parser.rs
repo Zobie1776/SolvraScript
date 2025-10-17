@@ -61,10 +61,13 @@ impl Parser {
         let mut statements = Vec::new();
 
         while !self.is_at_end() {
-            // Skip newlines and comments at the top level
-            if self.check(&TokenKind::Newline) || self.check(&TokenKind::Comment(String::new())) {
-                self.advance();
-                continue;
+            // Skip whitespace and comments at the top level
+            match &self.peek().kind {
+                TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent | TokenKind::Comment(_) => {
+                    self.advance();
+                    continue;
+                }
+                _ => {}
             }
             statements.push(self.parse_statement()?);
         }
@@ -155,8 +158,12 @@ impl Parser {
                 let param_pos = self.current_position();
                 let param_name = self.consume_identifier("Expected parameter name")?;
                 
-                self.consume(&TokenKind::Colon, "Expected ':' after parameter name")?;
-                let param_type = self.parse_type()?;
+                let param_type = if self.check(&TokenKind::Colon) {
+                    self.advance();
+                    self.parse_type()?
+                } else {
+                    Type::Inferred
+                };
 
                 let default_value = if self.check(&TokenKind::Equal) {
                     self.advance();
@@ -425,12 +432,13 @@ impl Parser {
             let is_end = self.check(&TokenKind::RightBrace) || self.is_at_end();
             !is_end
         } {
-            // Skip newlines and comments inside blocks
-            let is_newline = self.check(&TokenKind::Newline);
-            let is_comment = self.check(&TokenKind::Comment(String::new()));
-            if is_newline || is_comment {
-                self.advance();
-                continue;
+            // Skip whitespace and comments inside blocks
+            match &self.peek().kind {
+                TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent | TokenKind::Comment(_) => {
+                    self.advance();
+                    continue;
+                }
+                _ => {}
             }
             statements.push(self.parse_statement()?);
         }

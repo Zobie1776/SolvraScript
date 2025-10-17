@@ -346,6 +346,7 @@ impl Interpreter {
                 let v = self.eval_expr(operand)?;
                 self.eval_unary_op(operator, v)
             }
+            Expr::StringTemplate { parts, .. } => self.eval_string_template(parts),
 
             Expr::Assignment { target, value, .. } => {
                 if let Expr::Identifier { name, .. } = &**target {
@@ -412,6 +413,20 @@ impl Interpreter {
                 Ok(Value::Object(map))
             }
         }
+    }
+
+    fn eval_string_template(&mut self, parts: &[StringPart]) -> Result<Value, RuntimeError> {
+        let mut result = String::new();
+        for part in parts {
+            match part {
+                StringPart::Literal(text) => result.push_str(text),
+                StringPart::Expression(expr) => {
+                    let value = self.eval_expr(expr)?;
+                    result.push_str(&value.to_string());
+                }
+            }
+        }
+        Ok(Value::String(result))
     }
 
     fn eval_binary_op(&self, op: &BinaryOp, left: Value, right: Value) -> Result<Value, RuntimeError> {
@@ -605,6 +620,21 @@ impl Interpreter {
     }
 
     fn set_variable(&mut self, name: String, value: Value) {
+        if let Some(scope) = self
+            .locals
+            .iter_mut()
+            .rev()
+            .find(|scope| scope.contains_key(&name))
+        {
+            scope.insert(name, value);
+            return;
+        }
+
+        if self.globals.contains_key(&name) {
+            self.globals.insert(name, value);
+            return;
+        }
+
         if let Some(scope) = self.locals.last_mut() {
             scope.insert(name, value);
         } else {
