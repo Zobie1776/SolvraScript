@@ -15,18 +15,10 @@ pub struct WorkspaceConfig {
     pub project: Option<ProjectSection>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct TaskSection {
     #[serde(default)]
     pub default: WorkspaceTaskSet,
-}
-
-impl Default for TaskSection {
-    fn default() -> Self {
-        Self {
-            default: WorkspaceTaskSet::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

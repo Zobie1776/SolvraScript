@@ -79,11 +79,8 @@ impl ProjectTreeBuilder {
                 if let Some(child) = child {
                     Self::insert(child, rest, is_dir);
                 } else {
-                    let mut new_child = ProjectNode::new(
-                        new_child_name,
-                        parent_path.join(&first),
-                        true,
-                    );
+                    let mut new_child =
+                        ProjectNode::new(new_child_name, parent_path.join(&first), true);
                     Self::insert(&mut new_child, rest, is_dir);
                     node.children.push(new_child);
                 }

@@ -32,8 +32,7 @@ impl PartialEq for FailSafeError {
         use FailSafeError::*;
 
         match (self, other) {
-            (MissingPassphrase, MissingPassphrase)
-            | (InvalidPassphrase, InvalidPassphrase) => true,
+            (MissingPassphrase, MissingPassphrase) | (InvalidPassphrase, InvalidPassphrase) => true,
             (Other(lhs), Other(rhs)) => lhs.to_string() == rhs.to_string(),
             _ => false,
         }
