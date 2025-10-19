@@ -232,11 +232,27 @@ impl Parser {
         let start_pos = self.current_position();
         self.consume(&TokenKind::Import, "Expected 'import'")?;
 
-        let module = self.consume_identifier("Expected module name")?;
-        let items = Vec::new(); // TODO: Handle specific imports like import { foo, bar }
-
-        let alias = if self.check(&TokenKind::Identifier("as".to_string())) {
+        let (module, items) = if self.check(&TokenKind::LeftBrace) {
             self.advance();
+            let mut items = Vec::new();
+            while !self.check(&TokenKind::RightBrace) {
+                let item = self.consume_identifier("Expected imported item name")?;
+                items.push(item);
+                if self.check(&TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            self.consume(&TokenKind::RightBrace, "Expected '}' after import list")?;
+            self.expect_identifier_keyword("from")?;
+            let module = self.consume_identifier("Expected module name")?;
+            (module, items)
+        } else {
+            (self.consume_identifier("Expected module name")?, Vec::new())
+        };
+
+        let alias = if self.match_identifier("as") {
             Some(self.consume_identifier("Expected alias name")?)
         } else {
             None
@@ -1065,6 +1081,28 @@ impl Parser {
                 found: self.peek().kind.clone(),
                 position: self.peek().position.clone(),
             }),
+        }
+    }
+
+    fn match_identifier(&mut self, expected: &str) -> bool {
+        if let TokenKind::Identifier(name) = &self.peek().kind {
+            if name == expected {
+                self.advance();
+                return true;
+            }
+        }
+        false
+    }
+
+    fn expect_identifier_keyword(&mut self, keyword: &str) -> Result<(), ParseError> {
+        if self.match_identifier(keyword) {
+            Ok(())
+        } else {
+            Err(ParseError::UnexpectedToken {
+                expected: format!("'{}'", keyword),
+                found: self.peek().kind.clone(),
+                position: self.peek().position.clone(),
+            })
         }
     }
 
