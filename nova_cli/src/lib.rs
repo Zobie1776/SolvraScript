@@ -9,6 +9,7 @@ pub mod parser;
 pub mod registry;
 pub mod terminal;
 pub mod cmd {
+    pub mod app_store;
     pub mod builtin;
     pub mod external;
     pub mod nova;

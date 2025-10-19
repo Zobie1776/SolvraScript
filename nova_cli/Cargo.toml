@@ -24,6 +24,8 @@ parking_lot = "0.12"
 which = "5"
 walkdir = "2"
 shell-words = "1"
+nova_app_store = { path = "../nova_app_store" }
+semver = "1"
 
 [dependencies.novascript]
 path = "../nova_script"
