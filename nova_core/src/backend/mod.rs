@@ -82,13 +82,13 @@ pub mod x86_64;
 pub fn active_backend() -> &'static dyn ArchitectureBackend {
     #[cfg(feature = "backend-x86_64")]
     {
-        static BACKEND: Lazy<x86_64::X86Backend> = Lazy::new(|| x86_64::X86Backend::default());
+        static BACKEND: Lazy<x86_64::X86Backend> = Lazy::new(x86_64::X86Backend::default);
         &*BACKEND
     }
 
     #[cfg(all(not(feature = "backend-x86_64"), feature = "backend-armv7"))]
     {
-        static BACKEND: Lazy<arm::Armv7Backend> = Lazy::new(|| arm::Armv7Backend::default());
+        static BACKEND: Lazy<arm::Armv7Backend> = Lazy::new(arm::Armv7Backend::default);
         &*BACKEND
     }
 
@@ -99,7 +99,7 @@ pub fn active_backend() -> &'static dyn ArchitectureBackend {
     ))]
     {
         static BACKEND: Lazy<aarch64::Aarch64Backend> =
-            Lazy::new(|| aarch64::Aarch64Backend::default());
+            Lazy::new(aarch64::Aarch64Backend::default);
         &*BACKEND
     }
 
