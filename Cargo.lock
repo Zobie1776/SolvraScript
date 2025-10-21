@@ -2311,6 +2311,7 @@ dependencies = [
  "criterion",
  "crossbeam-deque",
  "crossbeam-queue",
+ "once_cell",
  "parking_lot",
  "rand",
  "serde_json",
