@@ -57,18 +57,13 @@ pub enum SheetError {
 }
 
 /// Represents the contents of a spreadsheet cell.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum CellContent {
+    #[default]
     Empty,
     Number(f64),
     Text(String),
     Formula(String),
-}
-
-impl Default for CellContent {
-    fn default() -> Self {
-        CellContent::Empty
-    }
 }
 
 /// Runtime value of a cell after formula evaluation.
@@ -109,7 +104,12 @@ impl fmt::Display for CellCoordinate {
             }
             col -= 1;
         }
-        write!(f, "{}{}", label.chars().rev().collect::<String>(), self.row + 1)
+        write!(
+            f,
+            "{}{}",
+            label.chars().rev().collect::<String>(),
+            self.row + 1
+        )
     }
 }
 
@@ -161,11 +161,15 @@ impl Sheet {
     }
 
     /// Set the raw content of a cell.
-    pub fn set_cell(&mut self, reference: &str, value: impl Into<String>) -> Result<(), SheetError> {
+    pub fn set_cell(
+        &mut self,
+        reference: &str,
+        value: impl Into<String>,
+    ) -> Result<(), SheetError> {
         let coord = CellCoordinate::parse(reference)?;
         let value = value.into();
-        let content = if value.starts_with('=') {
-            CellContent::Formula(value[1..].trim().to_string())
+        let content = if let Some(formula) = value.strip_prefix('=') {
+            CellContent::Formula(formula.trim().to_string())
         } else if let Ok(number) = value.parse::<f64>() {
             CellContent::Number(number)
         } else if value.trim().is_empty() {
@@ -276,7 +280,10 @@ impl Sheet {
         let value = parser.parse_expression()?;
         parser.consume_whitespace();
         if !parser.is_eof() {
-            return Err(SheetError::Parse(format!("unexpected token near '{}...'", parser.remaining())));
+            return Err(SheetError::Parse(format!(
+                "unexpected token near '{}...'",
+                parser.remaining()
+            )));
         }
         Ok(value)
     }
@@ -466,18 +473,15 @@ impl<'a> FormulaParser<'a> {
         for col in col_start..=col_end {
             for row in row_start..=row_end {
                 let coord = CellCoordinate { column: col, row };
-                match self.sheet.evaluate_cell(&coord, self.visited)? {
-                    CellValue::Number(value) => values.push(value),
-                    _ => {}
+                if let CellValue::Number(value) = self.sheet.evaluate_cell(&coord, self.visited)? {
+                    values.push(value);
                 }
             }
         }
         Ok(values)
     }
 
-    fn try_parse_range(
-        &mut self,
-    ) -> Result<Option<(CellCoordinate, CellCoordinate)>, SheetError> {
+    fn try_parse_range(&mut self) -> Result<Option<(CellCoordinate, CellCoordinate)>, SheetError> {
         let save = self.pos;
         match self.parse_cell_label() {
             Ok(left_label) => {
@@ -593,6 +597,9 @@ mod tests {
         let mut sheet = Sheet::new();
         sheet.set_cell("A1", "=A2").unwrap();
         sheet.set_cell("A2", "=A1").unwrap();
-        assert!(matches!(sheet.value("A1"), Err(SheetError::CircularReference(_))));
+        assert!(matches!(
+            sheet.value("A1"),
+            Err(SheetError::CircularReference(_))
+        ));
     }
 }

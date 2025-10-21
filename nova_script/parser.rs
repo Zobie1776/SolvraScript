@@ -1085,11 +1085,11 @@ impl Parser {
     }
 
     fn match_identifier(&mut self, expected: &str) -> bool {
-        if let TokenKind::Identifier(name) = &self.peek().kind {
-            if name == expected {
-                self.advance();
-                return true;
-            }
+        if let TokenKind::Identifier(name) = &self.peek().kind
+            && name == expected
+        {
+            self.advance();
+            return true;
         }
         false
     }
