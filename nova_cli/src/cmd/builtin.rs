@@ -22,7 +22,7 @@ pub fn register(registry: &Arc<Registry>) {
     registry.insert_builtin("export", Arc::new(Export));
     registry.insert_builtin("unset", Arc::new(Unset));
     registry.insert_builtin("help", Arc::new(Help));
-    registry.insert_builtin("app", Arc::new(AppStoreCommand::default()));
+    registry.insert_builtin("app", Arc::new(AppStoreCommand));
     registry.insert_builtin("ls", Arc::new(ExternalProxy("ls".into())));
     registry.insert_builtin("cat", Arc::new(ExternalProxy("cat".into())));
     registry.insert_builtin("cp", Arc::new(ExternalProxy("cp".into())));

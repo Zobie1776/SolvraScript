@@ -85,7 +85,10 @@ impl Default for TextStyle {
 impl TextStyle {
     /// Create a new style with a custom font size.
     pub fn sized(font_size: u8) -> Self {
-        Self { font_size, ..Self::default() }
+        Self {
+            font_size,
+            ..Self::default()
+        }
     }
 
     /// Enable bold styling.
@@ -108,18 +111,13 @@ impl TextStyle {
 }
 
 /// Paragraph alignment options supported by NovaWriter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Alignment {
+    #[default]
     Left,
     Center,
     Right,
     Justified,
-}
-
-impl Default for Alignment {
-    fn default() -> Self {
-        Alignment::Left
-    }
 }
 
 /// A document paragraph comprised of styled text runs.

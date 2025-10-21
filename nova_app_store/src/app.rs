@@ -69,20 +69,15 @@ fn validate_id(id: &str) -> Result<(), AppIdError> {
 }
 
 /// Human-friendly category used to group applications in listings and search results.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AppCategory {
     Productivity,
     Creativity,
     Development,
     Multimedia,
+    #[default]
     Utilities,
     System,
-}
-
-impl Default for AppCategory {
-    fn default() -> Self {
-        AppCategory::Utilities
-    }
 }
 
 /// Metadata describing a single version of an application.
@@ -328,7 +323,7 @@ impl AppMetadata {
 
     /// Retrieve the latest available package based on semantic version ordering.
     pub fn latest_package(&self) -> Option<&AppPackage> {
-        self.versions.values().rev().next()
+        self.versions.values().next_back()
     }
 
     /// Retrieve a specific package version.
@@ -377,4 +372,3 @@ impl InstallationManifest {
         }
     }
 }
-

@@ -57,6 +57,12 @@ pub struct StreamSession {
     recorder: Recorder,
 }
 
+impl Default for StreamSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StreamSession {
     /// Create a new session with no scenes configured.
     pub fn new() -> Self {
@@ -99,7 +105,8 @@ impl StreamSession {
     pub fn start_recording(&mut self) {
         if !self.recorder.is_recording {
             self.recorder.start();
-            self.events.push(StreamEvent::RecordingStarted(Instant::now()));
+            self.events
+                .push(StreamEvent::RecordingStarted(Instant::now()));
         }
     }
 
@@ -107,7 +114,8 @@ impl StreamSession {
     pub fn stop_recording(&mut self) -> Option<Duration> {
         if self.recorder.is_recording {
             let duration = self.recorder.stop();
-            self.events.push(StreamEvent::RecordingStopped(Instant::now(), duration));
+            self.events
+                .push(StreamEvent::RecordingStopped(Instant::now(), duration));
             Some(duration)
         } else {
             None
@@ -153,19 +161,10 @@ impl StreamSession {
 }
 
 /// Recorder tracks the state of file-based captures.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Recorder {
     is_recording: bool,
     started_at: Option<Instant>,
-}
-
-impl Default for Recorder {
-    fn default() -> Self {
-        Self {
-            is_recording: false,
-            started_at: None,
-        }
-    }
 }
 
 impl Recorder {
@@ -176,12 +175,10 @@ impl Recorder {
 
     fn stop(&mut self) -> Duration {
         self.is_recording = false;
-        let duration = self
-            .started_at
+        self.started_at
             .take()
             .map(|start| start.elapsed())
-            .unwrap_or_default();
-        duration
+            .unwrap_or_default()
     }
 }
 
@@ -250,8 +247,15 @@ pub struct OverlaySource {
 /// Events produced during streaming operations.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamEvent {
-    SceneSwitched { scene: String, timestamp: Instant },
-    SourceAdded { scene: String, source: Source, timestamp: Instant },
+    SceneSwitched {
+        scene: String,
+        timestamp: Instant,
+    },
+    SourceAdded {
+        scene: String,
+        source: Source,
+        timestamp: Instant,
+    },
     RecordingStarted(Instant),
     RecordingStopped(Instant, Duration),
 }

@@ -24,21 +24,11 @@ pub enum SandboxPermission {
 }
 
 /// Policy defining the permissions and resource scopes for an application.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SandboxPolicy {
     permissions: BTreeSet<SandboxPermission>,
     storage_roots: Vec<String>,
     network_hosts: Vec<String>,
-}
-
-impl Default for SandboxPolicy {
-    fn default() -> Self {
-        Self {
-            permissions: BTreeSet::new(),
-            storage_roots: Vec::new(),
-            network_hosts: Vec::new(),
-        }
-    }
 }
 
 impl SandboxPolicy {
