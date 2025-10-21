@@ -370,11 +370,11 @@ impl NovaIdeApp {
                     ui.separator();
                     let filter = self.command_filter.to_lowercase();
                     for entry in &entries {
-                        if entry.label.to_lowercase().contains(&filter) {
-                            if ui.button(&entry.label).clicked() {
-                                (&entry.action)(self);
-                                should_close = true;
-                            }
+                        if entry.label.to_lowercase().contains(&filter)
+                            && ui.button(&entry.label).clicked()
+                        {
+                            (entry.action)(self);
+                            should_close = true;
                         }
                     }
                 });

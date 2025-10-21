@@ -1676,7 +1676,6 @@ fn value_from_http_response(response: ureq::Response) -> Result<Value, RuntimeEr
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
@@ -1777,7 +1776,7 @@ mod tests {
     #[test]
     fn test_file_roundtrip() {
         let mut interpreter = Interpreter::new();
-        let mut path = PathBuf::from(env::temp_dir());
+        let mut path = env::temp_dir();
         path.push("novascript_test.txt");
         let path_value = Value::String(path.to_string_lossy().to_string());
         call_builtin(

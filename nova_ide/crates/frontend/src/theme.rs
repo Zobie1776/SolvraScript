@@ -56,10 +56,9 @@ impl ThemeManager {
 
         let mut style: Style = (*ctx.style()).clone();
         style.visuals = visuals;
-        style
-            .text_styles
-            .get_mut(&egui::TextStyle::Body)
-            .map(|s| s.size = font_size);
+        if let Some(text_style) = style.text_styles.get_mut(&egui::TextStyle::Body) {
+            text_style.size = font_size;
+        }
         ctx.set_style(style);
     }
 

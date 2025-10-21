@@ -9,19 +9,10 @@ pub struct FileChangeEntry {
     pub status: Status,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GitSummary {
     pub branch: Option<String>,
     pub changes: Vec<FileChangeEntry>,
-}
-
-impl Default for GitSummary {
-    fn default() -> Self {
-        Self {
-            branch: None,
-            changes: Vec::new(),
-        }
-    }
 }
 
 pub struct GitPanelState {
