@@ -672,21 +672,18 @@ fn constant_fold(function: &mut IrFunction) {
         ) else {
             break;
         };
-        match (&left.opcode, &right.opcode, &op.opcode) {
-            (IrOpcode::PushConst(a), IrOpcode::PushConst(b), operator) => {
-                if let Some(constant) = fold_constants(a, b, operator) {
-                    let span = op.span.clone();
-                    function.instructions.splice(
-                        i..=i + 2,
-                        [IrInstruction::new(IrOpcode::PushConst(constant), span)],
-                    );
-                    if i > 0 {
-                        i -= 1;
-                    }
-                    continue;
-                }
+        if let (IrOpcode::PushConst(a), IrOpcode::PushConst(b), operator) =
+            (&left.opcode, &right.opcode, &op.opcode)
+        {
+            if let Some(constant) = fold_constants(a, b, operator) {
+                let span = op.span.clone();
+                function.instructions.splice(
+                    i..=i + 2,
+                    [IrInstruction::new(IrOpcode::PushConst(constant), span)],
+                );
+                i = i.saturating_sub(1);
+                continue;
             }
-            _ => {}
         }
         i += 1;
     }

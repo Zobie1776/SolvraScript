@@ -19,8 +19,8 @@ pub struct LanguageServerDescriptor {
 
 #[derive(Debug)]
 pub enum LspCommand {
-    Initialize(InitializeParams),
-    RequestCompletions(CompletionParams),
+    Initialize(Box<InitializeParams>),
+    RequestCompletions(Box<CompletionParams>),
     Shutdown,
 }
 
@@ -142,7 +142,9 @@ impl LspCoordinator {
             }),
             locale: None,
         };
-        sender.send(LspCommand::Initialize(init_params)).await?;
+        sender
+            .send(LspCommand::Initialize(Box::new(init_params)))
+            .await?;
         Ok(())
     }
 
@@ -164,7 +166,7 @@ impl LspCoordinator {
             };
             session
                 .sender
-                .send(LspCommand::RequestCompletions(params))
+                .send(LspCommand::RequestCompletions(Box::new(params)))
                 .await?;
         }
         Ok(())

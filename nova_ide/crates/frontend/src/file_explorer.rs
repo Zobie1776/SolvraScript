@@ -36,7 +36,7 @@ impl FileExplorer {
     pub fn load_from_root(&mut self, root: PathBuf, max_depth: usize) {
         let mut node = ExplorerNode::new(root.clone(), true);
         node.expanded = true;
-        node.children = self.build_tree(&root, max_depth);
+        node.children = self.build_tree(root.clone(), max_depth);
         self.root = Some(node);
     }
 
@@ -46,25 +46,29 @@ impl FileExplorer {
         }
     }
 
-    fn build_tree(&self, root: &Path, max_depth: usize) -> Vec<ExplorerNode> {
+    fn build_tree(&self, root: PathBuf, max_depth: usize) -> Vec<ExplorerNode> {
+        Self::collect_children(root.as_path(), max_depth)
+    }
+
+    fn collect_children(path: &Path, max_depth: usize) -> Vec<ExplorerNode> {
         let mut nodes = Vec::new();
         if max_depth == 0 {
             return nodes;
         }
 
-        for entry in WalkDir::new(root)
+        for entry in WalkDir::new(path)
             .max_depth(1)
             .into_iter()
             .filter_map(Result::ok)
         {
-            let path = entry.path();
-            if path == root {
+            let entry_path = entry.path();
+            if entry_path == path {
                 continue;
             }
             let is_dir = entry.file_type().is_dir();
-            let mut node = ExplorerNode::new(path.to_path_buf(), is_dir);
+            let mut node = ExplorerNode::new(entry_path.to_path_buf(), is_dir);
             if is_dir {
-                node.children = self.build_tree(path, max_depth - 1);
+                node.children = Self::collect_children(entry_path, max_depth - 1);
             }
             nodes.push(node);
         }
