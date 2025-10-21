@@ -151,8 +151,9 @@ impl Slide {
 
     /// Add a text element to the slide.
     pub fn add_text(&mut self, content: impl Into<String>, position: Position, style: TextStyle) {
-        self.elements
-            .push(SlideElement::Text(TextElement::new(content, position, style)));
+        self.elements.push(SlideElement::Text(TextElement::new(
+            content, position, style,
+        )));
     }
 
     /// Add an image element to the slide.
@@ -279,8 +280,16 @@ mod tests {
     fn builds_presentation_outline() {
         let mut deck = Presentation::new();
         let slide = deck.add_slide("Welcome");
-        slide.add_text("Agenda", Position::new(0.1, 0.2), TextStyle::default().bold());
-        slide.add_image("images/intro.png", Position::new(0.5, 0.5), Size::new(0.3, 0.3));
+        slide.add_text(
+            "Agenda",
+            Position::new(0.1, 0.2),
+            TextStyle::default().bold(),
+        );
+        slide.add_image(
+            "images/intro.png",
+            Position::new(0.5, 0.5),
+            Size::new(0.3, 0.3),
+        );
         deck.apply_transition(0, Transition::Fade).unwrap();
 
         let outline = deck.preview_outline();

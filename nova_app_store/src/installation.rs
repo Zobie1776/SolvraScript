@@ -186,7 +186,10 @@ mod tests {
         assert!(registry.get(&manifest.id).is_some());
         drop(registry);
         let registry = InstallationRegistry::load_from_paths(temp.paths.clone()).unwrap();
-        assert_eq!(registry.get(&manifest.id).unwrap().version, Version::new(1, 0, 0));
+        assert_eq!(
+            registry.get(&manifest.id).unwrap().version,
+            Version::new(1, 0, 0)
+        );
     }
 
     #[test]

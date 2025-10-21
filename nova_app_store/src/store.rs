@@ -56,7 +56,11 @@ impl AppStore {
     }
 
     /// Install or update an application. Dependencies are automatically resolved.
-    pub fn install(&mut self, id: &AppId, version: Option<&Version>) -> Result<InstallationManifest, InstallationError> {
+    pub fn install(
+        &mut self,
+        id: &AppId,
+        version: Option<&Version>,
+    ) -> Result<InstallationManifest, InstallationError> {
         let mut visited = BTreeSet::new();
         self.install_inner(id, version, &mut visited)
     }
@@ -69,11 +73,13 @@ impl AppStore {
     ) -> Result<InstallationManifest, InstallationError> {
         if !visited.insert(id.clone()) {
             // Circular dependency detected.
-            return Err(InstallationError::UnmetDependency(crate::app::AppDependency {
-                id: id.clone(),
-                requirement: semver::VersionReq::STAR,
-                optional: false,
-            }));
+            return Err(InstallationError::UnmetDependency(
+                crate::app::AppDependency {
+                    id: id.clone(),
+                    requirement: semver::VersionReq::STAR,
+                    optional: false,
+                },
+            ));
         }
 
         if let Some(installed) = self.installations.get(id) {
@@ -173,8 +179,7 @@ mod tests {
     #[test]
     fn installs_builtin_applications() {
         let temp = temp_paths();
-        let registry =
-            InstallationRegistry::load_from_paths(temp.paths.clone()).unwrap();
+        let registry = InstallationRegistry::load_from_paths(temp.paths.clone()).unwrap();
         let mut store = AppStore {
             catalog: Catalog::new(),
             installations: registry,

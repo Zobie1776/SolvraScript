@@ -40,11 +40,8 @@ impl CommandHandler for AppStoreCommand {
             "install" => {
                 let (app_id, version) = parse_install_args(&invocation.args[1..])?;
                 let manifest = store.install(&app_id, version.as_ref().map(|v| v.as_ref()))?;
-                let mut message = format!(
-                    "Installed {} version {}\n",
-                    manifest.id,
-                    manifest.version
-                );
+                let mut message =
+                    format!("Installed {} version {}\n", manifest.id, manifest.version);
                 if !manifest.capabilities.is_empty() {
                     message.push_str("Capabilities registered:\n");
                     for capability in &manifest.capabilities {
@@ -65,7 +62,11 @@ impl CommandHandler for AppStoreCommand {
                     format!("Removed application {}\n", app_id),
                 ))
             }
-            other => Err(anyhow!("unknown app store subcommand '{}'. {}", other, usage())),
+            other => Err(anyhow!(
+                "unknown app store subcommand '{}'. {}",
+                other,
+                usage()
+            )),
         }
     }
 }
@@ -79,10 +80,7 @@ fn render_catalog(store: &AppStore) -> String {
             .unwrap_or_else(|| "n/a".into());
         output.push_str(&format!(
             "{} ({})\n  {}\n  latest: {}\n\n",
-            id,
-            metadata.name,
-            metadata.summary,
-            latest
+            id, metadata.name, metadata.summary, latest
         ));
     }
     if output.is_empty() {
@@ -96,9 +94,7 @@ fn render_installed(store: &AppStore) -> String {
     for (id, manifest) in store.list_installed() {
         output.push_str(&format!(
             "{} {} (installed {})\n",
-            id,
-            manifest.version,
-            manifest.installed_at
+            id, manifest.version, manifest.installed_at
         ));
     }
     if output.is_empty() {
@@ -117,7 +113,10 @@ fn render_info(store: &AppStore, id: &AppId) -> Result<CommandOutcome> {
     if metadata.tags.is_empty() {
         output.push_str("(none)\n");
     } else {
-        output.push_str(&format!("{}\n", metadata.tags.iter().cloned().collect::<Vec<_>>().join(", ")));
+        output.push_str(&format!(
+            "{}\n",
+            metadata.tags.iter().cloned().collect::<Vec<_>>().join(", ")
+        ));
     }
     if let Some(package) = metadata.latest_package() {
         output.push_str(&format!("Latest version: {}\n", package.version));
@@ -136,10 +135,7 @@ fn parse_install_args(args: &[String]) -> Result<(AppId, Option<VersionWrapper>)
         return Err(anyhow!("install requires an app identifier"));
     }
     let mut iter = args.iter();
-    let id = iter
-        .next()
-        .expect("checked non-empty slice")
-        .to_string();
+    let id = iter.next().expect("checked non-empty slice").to_string();
     let mut version = None;
     while let Some(arg) = iter.next() {
         if arg == "--version" {

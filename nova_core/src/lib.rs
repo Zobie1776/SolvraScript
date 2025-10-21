@@ -20,8 +20,11 @@ pub mod bytecode;
 pub mod concurrency;
 pub mod ffi;
 pub mod memory;
+pub mod module;
 pub mod sys;
 
+use std::fmt;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -31,19 +34,22 @@ use rand::thread_rng;
 use thiserror::Error;
 use tracing::instrument;
 
-use crate::bytecode::{spec::NovaBytecode, vm::Vm};
+use crate::bytecode::spec::DebugSymbol;
+use crate::bytecode::vm::Vm;
+use crate::module::{Module, ModuleLoader};
 
 /// Result type used across NovaCore.
 pub type NovaResult<T> = std::result::Result<T, NovaError>;
 
-/// Values that NovaRuntime can produce.
-#[derive(Debug, Clone, PartialEq)]
+/// Values manipulated by the NovaCore runtime.
+#[derive(Clone)]
 pub enum Value {
     Null,
     Boolean(bool),
     Integer(i64),
     Float(f64),
     String(String),
+    Object(memory::gc::GcRef),
 }
 
 impl Value {
@@ -57,7 +63,77 @@ impl Value {
             Constant::String(s) => Value::String(s.clone()),
         }
     }
+
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::Null => "null",
+            Value::Boolean(_) => "boolean",
+            Value::Integer(_) => "integer",
+            Value::Float(_) => "float",
+            Value::String(_) => "string",
+            Value::Object(_) => "object",
+        }
+    }
+
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Value::Null => false,
+            Value::Boolean(b) => *b,
+            Value::Integer(i) => *i != 0,
+            Value::Float(f) => *f != 0.0,
+            Value::String(s) => !s.is_empty(),
+            Value::Object(_) => true,
+        }
+    }
+
+    pub(crate) fn as_number(&self) -> Result<f64, String> {
+        match self {
+            Value::Integer(value) => Ok(*value as f64),
+            Value::Float(value) => Ok(*value),
+            Value::Boolean(value) => Ok(if *value { 1.0 } else { 0.0 }),
+            Value::Null => Ok(0.0),
+            other => Err(format!(
+                "{} cannot be converted to number",
+                other.type_name()
+            )),
+        }
+    }
+
+    pub(crate) fn trace(&self, visitor: &mut dyn FnMut(memory::gc::GcRef)) {
+        if let Value::Object(reference) = self {
+            visitor(*reference);
+        }
+    }
 }
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Null => write!(f, "Null"),
+            Value::Boolean(b) => write!(f, "Boolean({b})"),
+            Value::Integer(i) => write!(f, "Integer({i})"),
+            Value::Float(val) => write!(f, "Float({val})"),
+            Value::String(s) => write!(f, "String({s:?})"),
+            Value::Object(obj) => write!(f, "Object({:?})", obj.handle()),
+        }
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Null, Value::Null) => true,
+            (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::Integer(a), Value::Integer(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::Object(a), Value::Object(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Value {}
 
 /// Configuration for the runtime.
 #[derive(Debug, Clone)]
@@ -88,12 +164,26 @@ pub enum NovaError {
     InvalidCostLimit(String),
     #[error("unexpected runtime state: {0}")]
     Internal(String),
+    #[error("{message}")]
+    RuntimeException {
+        message: String,
+        stack: Vec<StackFrame>,
+    },
+    #[error("native error: {0}")]
+    Native(String),
 }
 
 impl From<bytecode::spec::NovaBytecodeError> for NovaError {
     fn from(err: bytecode::spec::NovaBytecodeError) -> Self {
         NovaError::Bytecode(err.to_string())
     }
+}
+
+/// Captured stack frame used to report runtime errors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StackFrame {
+    pub function: String,
+    pub location: Option<DebugSymbol>,
 }
 
 /// Fail-safe state shared by the runtime.
@@ -160,6 +250,7 @@ impl FailSafeState {
 pub struct NovaRuntime {
     config: RuntimeConfig,
     failsafe: Arc<FailSafeState>,
+    modules: Arc<RwLock<ModuleLoader>>,
 }
 
 impl Default for NovaRuntime {
@@ -174,6 +265,7 @@ impl NovaRuntime {
         Self {
             config: RuntimeConfig::default(),
             failsafe: Arc::new(FailSafeState::default()),
+            modules: Arc::new(RwLock::new(ModuleLoader::new())),
         }
     }
 
@@ -209,10 +301,28 @@ impl NovaRuntime {
     #[instrument(skip_all)]
     pub fn execute(&self, bytes: &[u8]) -> NovaResult<Value> {
         self.failsafe.ensure_unlocked()?;
-        let bytecode = NovaBytecode::from_bytes(bytes)?;
-        let mut vm = Vm::new(self.config.cost_limit, bytecode.constants().to_vec());
-        let value = vm.execute(bytecode.instructions())?;
-        Ok(value)
+        let module = self.modules.write().load_bytes("__entry", bytes)?;
+        let mut vm = Vm::new(self.config.clone(), module.bytecode(), self.modules.clone());
+        vm.execute()
+    }
+
+    /// Loads a module into the runtime from raw bytes.
+    pub fn load_module_bytes(
+        &self,
+        name: impl Into<String>,
+        bytes: &[u8],
+    ) -> NovaResult<Arc<Module>> {
+        self.modules.write().load_bytes(name, bytes)
+    }
+
+    /// Loads a module from the filesystem.
+    pub fn load_module_file(&self, path: impl AsRef<Path>) -> NovaResult<Arc<Module>> {
+        self.modules.write().load_file(path)
+    }
+
+    /// Returns a list of loaded modules.
+    pub fn modules(&self) -> Vec<Arc<Module>> {
+        self.modules.read().modules().cloned().collect()
     }
 }
 

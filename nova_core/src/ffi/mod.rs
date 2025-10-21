@@ -106,6 +106,7 @@ mod c_api {
                                 3
                             }
                             Value::String(_) => 4,
+                            Value::Object(_) => 5,
                         };
                     }
                     NovaStatus::Ok
