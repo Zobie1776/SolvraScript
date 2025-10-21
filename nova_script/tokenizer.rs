@@ -127,6 +127,24 @@ impl fmt::Display for TokenKind {
     }
 }
 
+impl TokenKind {
+    /// Returns the string slice associated with this token kind, if any.
+    ///
+    /// Tokens that carry owned `String` data (such as identifiers, string
+    /// literals, comments, and template strings) expose that data as an
+    /// `&str`. All other variants return `None` because they do not contain
+    /// string payloads.
+    pub fn get_str(&self) -> Option<&str> {
+        match self {
+            TokenKind::Identifier(value)
+            | TokenKind::String(value)
+            | TokenKind::StringTemplate(value)
+            | TokenKind::Comment(value) => Some(value.as_str()),
+            _ => None,
+        }
+    }
+}
+
 /// A token with its kind and position information
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
@@ -826,5 +844,31 @@ print("Result: ${x}");"#;
             x_token.position.column
         );
         // No assertion on line or column, as we expect true position tracking
+    }
+
+    #[test]
+    fn token_kind_get_str_returns_some_for_string_variants() {
+        // Each of these token kinds stores a `String` that should be retrievable.
+        let identifier = TokenKind::Identifier("example".to_string());
+        let string_literal = TokenKind::String("value".to_string());
+        let template_literal = TokenKind::StringTemplate("template".to_string());
+        let comment = TokenKind::Comment("note".to_string());
+
+        assert_eq!(identifier.get_str(), Some("example"));
+        assert_eq!(string_literal.get_str(), Some("value"));
+        assert_eq!(template_literal.get_str(), Some("template"));
+        assert_eq!(comment.get_str(), Some("note"));
+    }
+
+    #[test]
+    fn token_kind_get_str_returns_none_for_non_string_variants() {
+        // Variants without embedded string data should yield `None`.
+        let integer = TokenKind::Integer(42);
+        let keyword = TokenKind::Let;
+        let punctuation = TokenKind::LeftParen;
+
+        assert_eq!(integer.get_str(), None);
+        assert_eq!(keyword.get_str(), None);
+        assert_eq!(punctuation.get_str(), None);
     }
 }
