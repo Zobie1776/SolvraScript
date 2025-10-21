@@ -4,6 +4,8 @@
 //!
 //! The crate exposes three major building blocks:
 //!
+//! * [`backend`] – architecture-specific code generation and execution backends
+//!   selected at compile time via Cargo features.
 //! * [`bytecode`] – definition of the NovaBytecode format and an assembler capable of
 //!   lowering a small high-level AST into a compact instruction stream.
 //! * [`NovaRuntime`] – an embeddable runtime with a cost-metered interpreter capable of
@@ -16,6 +18,7 @@
 //! without leaking internal details.  Unsafe code is avoided by default and only available
 //! behind the optional `ffi` feature flag where raw pointers are unavoidable.
 
+pub mod backend;
 pub mod bytecode;
 pub mod concurrency;
 pub mod ffi;
@@ -35,7 +38,6 @@ use thiserror::Error;
 use tracing::instrument;
 
 use crate::bytecode::spec::DebugSymbol;
-use crate::bytecode::vm::Vm;
 use crate::module::{Module, ModuleLoader};
 
 /// Result type used across NovaCore.
@@ -245,7 +247,7 @@ impl FailSafeState {
     }
 }
 
-/// NovaRuntime orchestrates the interpreter and provides fail-safe gating.
+/// NovaRuntime orchestrates backend selection, execution, and provides fail-safe gating.
 #[derive(Debug, Clone)]
 pub struct NovaRuntime {
     config: RuntimeConfig,
@@ -302,8 +304,19 @@ impl NovaRuntime {
     pub fn execute(&self, bytes: &[u8]) -> NovaResult<Value> {
         self.failsafe.ensure_unlocked()?;
         let module = self.modules.write().load_bytes("__entry", bytes)?;
-        let mut vm = Vm::new(self.config.clone(), module.bytecode(), self.modules.clone());
-        vm.execute()
+        let backend = backend::active_backend();
+        let artifact = backend.compile(module.bytecode())?;
+        backend.execute(artifact, self.config.clone(), self.modules.clone())
+    }
+
+    /// Returns the active backend implementation.
+    pub fn backend(&self) -> &'static dyn backend::ArchitectureBackend {
+        backend::active_backend()
+    }
+
+    /// Returns the target architecture selected at compile time.
+    pub fn target_arch(&self) -> backend::TargetArch {
+        backend::active_target()
     }
 
     /// Loads a module into the runtime from raw bytes.
@@ -362,5 +375,12 @@ mod tests {
     #[test]
     fn cost_limit_validation() {
         assert!(NovaRuntime::new().with_cost_limit(0).is_err());
+    }
+
+    #[test]
+    fn exposes_backend_target() {
+        let runtime = NovaRuntime::new();
+        let backend = runtime.backend();
+        assert_eq!(backend.name(), runtime.target_arch().as_str());
     }
 }
