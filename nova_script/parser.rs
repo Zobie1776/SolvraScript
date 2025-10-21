@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 use crate::ast::{
-    BinaryOp, CatchBlock, Expr, FunctionDecl, ImportDecl, Literal, MatchArm, Parameter, Pattern,
-    Program, Stmt, StringPart, Type, UnaryOp, VariableDecl, Visibility,
+    BinaryOp, BindingKind, CatchBlock, Expr, FunctionDecl, ImportDecl, Literal, MatchArm,
+    Parameter, Pattern, Program, Stmt, StringPart, Type, UnaryOp, VariableDecl, Visibility,
 };
 use crate::tokenizer::{Position, Token, TokenKind};
 
@@ -95,7 +95,16 @@ impl Parser {
     /// Parse a single statement
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
         match &self.peek().kind {
-            TokenKind::Let => self.parse_variable_declaration(),
+            TokenKind::Let => {
+                let start_pos = self.current_position();
+                self.advance();
+                self.parse_variable_declaration(start_pos, BindingKind::Let)
+            }
+            TokenKind::Const => {
+                let start_pos = self.current_position();
+                self.advance();
+                self.parse_variable_declaration(start_pos, BindingKind::Const)
+            }
             TokenKind::Fn => self.parse_function_declaration(),
             TokenKind::Import => self.parse_import_declaration(),
             TokenKind::If => self.parse_if_statement(),
@@ -111,16 +120,30 @@ impl Parser {
         }
     }
 
-    /// Parse variable declaration: let [mut] name: type = value;
-    fn parse_variable_declaration(&mut self) -> Result<Stmt, ParseError> {
-        let start_pos = self.current_position();
-        self.consume(&TokenKind::Let, "Expected 'let'")?;
-
-        let is_mutable = if self.check(&TokenKind::Mut) {
-            self.advance();
-            true
-        } else {
-            false
+    /// Parse variable declaration: `let`/`const` name [: type] [= value];
+    fn parse_variable_declaration(
+        &mut self,
+        start_pos: Position,
+        binding: BindingKind,
+    ) -> Result<Stmt, ParseError> {
+        let is_mutable = match binding {
+            BindingKind::Let => {
+                if self.check(&TokenKind::Mut) {
+                    self.advance();
+                    true
+                } else {
+                    false
+                }
+            }
+            BindingKind::Const => {
+                if self.check(&TokenKind::Mut) {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "const bindings cannot be declared as mutable".to_string(),
+                        position: self.current_position(),
+                    });
+                }
+                false
+            }
         };
 
         let name = self.consume_identifier("Expected variable name")?;
@@ -135,6 +158,11 @@ impl Parser {
         let initializer = if self.check(&TokenKind::Equal) {
             self.advance();
             Some(self.parse_expression()?)
+        } else if matches!(binding, BindingKind::Const) {
+            return Err(ParseError::InvalidSyntax {
+                message: "const bindings require an initializer".to_string(),
+                position: self.current_position(),
+            });
         } else {
             None
         };
@@ -144,6 +172,7 @@ impl Parser {
         let decl = VariableDecl {
             name,
             var_type,
+            binding,
             is_mutable,
             initializer,
             position: start_pos,
@@ -1179,7 +1208,6 @@ impl Parser {
 
     // Utility: parse type annotation (stub for now)
     fn parse_type(&mut self) -> Result<Type, ParseError> {
-        // Accept int, float, string, bool, or identifier as type
         match &self.peek().kind {
             TokenKind::IntType => {
                 self.advance();
@@ -1197,12 +1225,38 @@ impl Parser {
                 self.advance();
                 Ok(Type::Bool)
             }
+            TokenKind::LeftBracket => {
+                self.advance();
+                let inner = self.parse_type()?;
+                self.consume(&TokenKind::RightBracket, "Expected ']' after array type")?;
+                Ok(Type::Array(Box::new(inner)))
+            }
+            TokenKind::LeftParen => {
+                self.advance();
+                let mut items = Vec::new();
+                if !self.check(&TokenKind::RightParen) {
+                    loop {
+                        items.push(self.parse_type()?);
+                        if self.check(&TokenKind::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.consume(&TokenKind::RightParen, "Expected ')' after tuple type")?;
+                Ok(Type::Tuple(items))
+            }
             TokenKind::Identifier(name) => {
                 let name = name.clone();
                 self.advance();
                 Ok(Type::Custom(name))
             }
-            _ => Ok(Type::Inferred),
+            _ => Err(ParseError::UnexpectedToken {
+                expected: "type annotation".to_string(),
+                found: self.peek().kind.clone(),
+                position: self.peek().position.clone(),
+            }),
         }
     }
 } // End of Parser implementation

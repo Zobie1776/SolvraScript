@@ -34,6 +34,7 @@ pub enum TokenKind {
 
     // Keywords
     Let,
+    Const,
     Mut,
     Fn,
     If,
@@ -154,6 +155,7 @@ impl Tokenizer {
     pub fn new(input: &str) -> Self {
         let mut keywords = HashMap::new();
         keywords.insert("let".to_string(), TokenKind::Let);
+        keywords.insert("const".to_string(), TokenKind::Const);
         keywords.insert("mut".to_string(), TokenKind::Mut);
         keywords.insert("fn".to_string(), TokenKind::Fn);
         keywords.insert("if".to_string(), TokenKind::If);
@@ -691,12 +693,13 @@ print("Result: ${x}");"#;
 
     #[test]
     fn test_keywords_and_identifiers() {
-        let input = "let mut fn if else identifier null lambda";
+        let input = "let const mut fn if else identifier null lambda";
         let mut tokenizer = Tokenizer::new(input);
         let tokens = tokenizer.tokenize().unwrap();
 
         let expected_kinds = vec![
             TokenKind::Let,
+            TokenKind::Const,
             TokenKind::Mut,
             TokenKind::Fn,
             TokenKind::If,

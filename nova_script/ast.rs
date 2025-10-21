@@ -13,6 +13,7 @@ pub enum Type {
     Bool,
     Null,
     Array(Box<Type>),
+    Tuple(Vec<Type>),
     Object(HashMap<String, Type>),
     Function {
         params: Vec<Type>,
@@ -32,6 +33,10 @@ impl fmt::Display for Type {
             Type::Bool => f.write_str("bool"),
             Type::Null => f.write_str("null"),
             Type::Array(inner) => write!(f, "[{}]", inner),
+            Type::Tuple(items) => {
+                let parts: Vec<String> = items.iter().map(ToString::to_string).collect();
+                write!(f, "({})", parts.join(", "))
+            }
             Type::Object(fields) => {
                 let field_strs: Vec<String> = fields
                     .iter()
@@ -280,11 +285,25 @@ pub struct Parameter {
     pub position: Position,
 }
 
+/// Distinguishes how a variable binding was introduced in source code.
+///
+/// NovaScript currently supports two binding forms:
+/// - `let` declarations, which may optionally use the `mut` keyword to opt into
+///   mutability.
+/// - `const` declarations, which are always immutable and must be initialized at
+///   the point of declaration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BindingKind {
+    Let,
+    Const,
+}
+
 /// Variable declarations
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariableDecl {
     pub name: String,
     pub var_type: Type,
+    pub binding: BindingKind,
     pub is_mutable: bool,
     pub initializer: Option<Expr>,
     pub position: Position,
@@ -1061,12 +1080,14 @@ mod tests {
         let var_decl = VariableDecl {
             name: "x".to_string(),
             var_type: Type::Int,
+            binding: BindingKind::Let,
             is_mutable: false,
             initializer: Some(Expr::literal(Literal::Integer(42), pos.clone())),
             position: pos.clone(),
         };
         assert_eq!(var_decl.name, "x");
         assert_eq!(var_decl.var_type, Type::Int);
+        assert!(matches!(var_decl.binding, BindingKind::Let));
         assert!(!var_decl.is_mutable);
         assert!(var_decl.initializer.is_some());
     }
@@ -1170,6 +1191,7 @@ mod tests {
         let var_decl = VariableDecl {
             name: "x".to_string(),
             var_type: Type::Int,
+            binding: BindingKind::Let,
             is_mutable: false,
             initializer: None,
             position: pos.clone(),
@@ -1388,10 +1410,11 @@ impl Parameter {
 }
 
 impl VariableDecl {
-    pub fn new(name: String, var_type: Type, position: Position) -> Self {
+    pub fn new(name: String, var_type: Type, binding: BindingKind, position: Position) -> Self {
         Self {
             name,
             var_type,
+            binding,
             is_mutable: false,
             initializer: None,
             position,
