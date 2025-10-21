@@ -9,6 +9,7 @@ use std::env;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::path::Path;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ureq::Agent;
@@ -472,8 +473,10 @@ impl Interpreter {
     }
 
     fn builtin_input(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        if let Some(prompt) = args.get(0) {
-            print!("{}", prompt.to_string());
+        if let Some(prompt) = args.first() {
+            // FIX: Use `first()` to read the optional prompt without indexing and
+            // rely on `Display` to avoid redundant `to_string()` allocation.
+            print!("{prompt}");
             io::stdout().flush()?;
         }
 
@@ -1087,11 +1090,15 @@ impl Interpreter {
                 .truncate(true)
                 .open(path)?,
             "a" => OpenOptions::new().append(true).create(true).open(path)?,
-            "rw" | "wr" => OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open(path)?,
+            "rw" | "wr" => {
+                if !Path::new(path).exists() {
+                    // FIX: Create the file explicitly so we can open it without
+                    // calling `create(true)`, satisfying Clippy's requirement to
+                    // choose between append/truncate when materialising files.
+                    File::create(path)?;
+                }
+                OpenOptions::new().read(true).write(true).open(path)?
+            }
             other => {
                 return Err(RuntimeError::ArgumentError(format!(
                     "Unsupported file mode '{other}'"
