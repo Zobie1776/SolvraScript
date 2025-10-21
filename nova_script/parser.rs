@@ -849,16 +849,18 @@ impl Parser {
             loop {
                 // Store peeked token kind in a local variable to avoid borrow checker issues
                 let kind = &self.peek().kind;
-                let key = if let TokenKind::Identifier(name) = kind {
-                    name.clone()
-                } else if let TokenKind::String(s) = kind {
-                    s.clone()
-                } else {
-                    return Err(ParseError::UnexpectedToken {
-                        expected: "property name".to_string(),
-                        found: self.peek().kind.clone(),
-                        position: self.peek().position.clone(),
-                    });
+                let key = match kind {
+                    TokenKind::Identifier(_)
+                    | TokenKind::String(_)
+                    | TokenKind::StringTemplate(_) =>
+                        kind.get_str().expect("string variants must expose text").to_owned(),
+                    _ => {
+                        return Err(ParseError::UnexpectedToken {
+                            expected: "property name".to_string(),
+                            found: self.peek().kind.clone(),
+                            position: self.peek().position.clone(),
+                        });
+                    }
                 };
                 self.advance();
 
