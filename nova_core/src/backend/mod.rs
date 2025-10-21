@@ -98,8 +98,7 @@ pub fn active_backend() -> &'static dyn ArchitectureBackend {
         feature = "backend-aarch64"
     ))]
     {
-        static BACKEND: Lazy<aarch64::Aarch64Backend> =
-            Lazy::new(aarch64::Aarch64Backend::default);
+        static BACKEND: Lazy<aarch64::Aarch64Backend> = Lazy::new(aarch64::Aarch64Backend::default);
         &*BACKEND
     }
 
