@@ -61,7 +61,7 @@ NovaAI + HiveMind — integrated AI assistants and agent mesh network for collab
 
 NovaOS is being built in two major forms:
 
-NovaLinux (Hybrid Dev Environment)A minimal Arch Linux base with all NovaOS applications layered on top. Best for developers who want to test-drive NovaOS now.
+NovaLinux (Hybrid Dev Environment)A minimal Ubuntu Linux base with all NovaOS applications layered on top. Best for developers who want to test-drive NovaOS now.
 
 NovaOS (Standalone ISO)The eventual full custom OS with bootloader, shell, runtime, and apps — no external dependencies. Built from scratch and exported as a bootable ISO.
 
