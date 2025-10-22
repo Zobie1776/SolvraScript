@@ -4,6 +4,10 @@ The Nova runtime tool exposes the `nova_core::NovaRuntime` interpreter as a
 standalone executable. It supports one-off execution of `.novac` bytecode files
 as well as an interactive REPL for iterating on Nova assembly.
 
+The REPL understands a handful of commands prefixed with `:`. Use `:help` to
+display the full list, including `:backend` which prints the currently active
+CPU backend.
+
 ## Building
 
 From the repository root, build the tool with Cargo:

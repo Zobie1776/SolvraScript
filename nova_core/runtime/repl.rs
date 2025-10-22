@@ -1,5 +1,6 @@
 use std::io::{self, BufRead, Write};
 
+use crate::backend;
 use crate::novac;
 use crate::runtime::{NovaError, NovaRuntime};
 use crate::NovaResult;
@@ -81,6 +82,11 @@ impl RuntimeRepl {
                 .map_err(map_io_error)?;
                 writeln!(
                     writer,
+                    "  :backend        Display the active CPU backend"
+                )
+                .map_err(map_io_error)?;
+                writeln!(
+                    writer,
                     "  :asm            Enter multi-line Nova assembly (finish with :end)"
                 )
                 .map_err(map_io_error)?;
@@ -135,6 +141,17 @@ impl RuntimeRepl {
                 } else {
                     writeln!(writer, ":exec requires a path argument").map_err(map_io_error)?;
                 }
+                Ok(true)
+            }
+            ":backend" => {
+                let backend = backend::active_backend();
+                writeln!(
+                    writer,
+                    "Active backend: {} ({})",
+                    backend.name(),
+                    backend.target().as_str()
+                )
+                .map_err(map_io_error)?;
                 Ok(true)
             }
             ":asm" => {
@@ -221,12 +238,13 @@ mod tests {
     fn repl_handles_exit_command() {
         let runtime = NovaRuntime::new();
         let mut repl = RuntimeRepl::new(runtime);
-        let input = b":help\n:quit\n";
+        let input = b":help\n:backend\n:quit\n";
         let mut reader = Cursor::new(&input[..]);
         let mut output = Vec::new();
         repl.run_with(&mut reader, &mut output).expect("repl run");
         let out_str = String::from_utf8(output).expect("utf8");
         assert!(out_str.contains("Available commands"));
+        assert!(out_str.contains("Active backend:"));
         assert!(out_str.contains("Exiting runtime REPL"));
     }
 }
