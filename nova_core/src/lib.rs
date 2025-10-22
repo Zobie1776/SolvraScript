@@ -24,6 +24,7 @@ pub mod concurrency;
 pub mod ffi;
 pub mod memory;
 pub mod module;
+pub mod novac;
 pub mod sys;
 
 use std::fmt;
