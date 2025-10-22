@@ -20,6 +20,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
           components: clippy
       - name: Install dependencies
         run: pnpm install
@@ -31,6 +32,10 @@ jobs:
         run: cargo test -p nova_core --no-default-features --features backend-armv7
       - name: nova_core tests (aarch64 backend)
         run: cargo test -p nova_core --no-default-features --features backend-aarch64
+      - name: Build runtime tool (x86_64)
+        run: cargo build -p nova_core --bin nova-runtime --target x86_64-unknown-linux-gnu
+      - name: Build runtime tool (aarch64)
+        run: cargo build -p nova_core --bin nova-runtime --no-default-features --features backend-aarch64 --target aarch64-unknown-linux-gnu
       - name: Lint
         run: pnpm lint
       - name: Typecheck
