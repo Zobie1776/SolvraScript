@@ -767,6 +767,11 @@ impl Builtins {
             "rand_float",
             "net_udp_bind",
             "net_udp_send",
+            "driver_register",
+            "driver_write_u32",
+            "driver_read_u32",
+            "driver_raise_interrupt",
+            "driver_next_interrupt",
         ];
         let map = names
             .into_iter()

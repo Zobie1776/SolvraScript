@@ -10,4 +10,6 @@ dist/
 **/dist/
 build/
 **/build/
+!nova_core/build/
+!nova_core/build/**
 .DS_Store

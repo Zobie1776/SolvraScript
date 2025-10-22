@@ -5,7 +5,9 @@ use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 
 use crate::bytecode::spec::NovaBytecode;
+use crate::integration::RuntimeHooks;
 use crate::module::ModuleLoader;
+use crate::sys::drivers::DriverRegistry;
 use crate::{NovaResult, RuntimeConfig, Value};
 
 #[cfg(all(feature = "backend-x86_64", feature = "backend-armv7"))]
@@ -65,6 +67,8 @@ pub trait ArchitectureBackend: Send + Sync {
         artifact: BackendArtifact,
         config: RuntimeConfig,
         modules: Arc<RwLock<ModuleLoader>>,
+        drivers: Arc<DriverRegistry>,
+        hooks: Arc<RuntimeHooks>,
     ) -> NovaResult<Value>;
     /// Optional optimisation hook run prior to emission.
     fn optimise(&self, _bytecode: &mut NovaBytecode) -> Result<()> {

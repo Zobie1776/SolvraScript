@@ -1,0 +1,28 @@
+; NovaCore Sample: Virtual Device Driver
+.version 1
+.entry init
+
+.const 0 "virtual_temp"
+.const 1 2
+.const 2 0
+.const 3 1
+.const 4 "Driver ready"
+
+.fn init 0 0
+    load_const 0
+    load_const 1
+    call_native driver_register 2
+    load_const 0
+    load_const 2
+    load_const 3
+    call_native driver_write_u32 3
+    load_const 4
+    call_native println 1
+    return
+.end
+
+.fn poll 0 0
+    load_const 0
+    call_native driver_next_interrupt 1
+    return
+.end
