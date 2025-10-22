@@ -4,7 +4,9 @@ use parking_lot::RwLock;
 
 use crate::backend::{ArchitectureBackend, BackendArtifact, TargetArch};
 use crate::bytecode::vm::Vm;
+use crate::integration::RuntimeHooks;
 use crate::module::ModuleLoader;
+use crate::sys::drivers::DriverRegistry;
 use crate::{NovaError, NovaResult, RuntimeConfig, Value};
 
 #[derive(Debug, Default)]
@@ -31,10 +33,12 @@ impl ArchitectureBackend for X86Backend {
         artifact: BackendArtifact,
         config: RuntimeConfig,
         modules: Arc<RwLock<ModuleLoader>>,
+        drivers: Arc<DriverRegistry>,
+        hooks: Arc<RuntimeHooks>,
     ) -> NovaResult<Value> {
         match artifact {
             BackendArtifact::Bytecode(bytecode) => {
-                let mut vm = Vm::new(config, bytecode, modules);
+                let mut vm = Vm::new(config, bytecode, modules, drivers, hooks);
                 vm.execute()
             }
             BackendArtifact::NativeBlob(_) => Err(NovaError::Internal(

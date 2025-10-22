@@ -22,12 +22,17 @@ pub mod backend;
 pub mod bytecode;
 pub mod concurrency;
 pub mod ffi;
+pub mod integration;
 pub mod memory;
 pub mod module;
 pub mod novac;
 pub mod sys;
 
+pub use integration::{DebuggerEvent, RuntimeHooks, RuntimeLog, TelemetryEvent};
+pub use sys::drivers::{DriverDescriptor, DriverRegistry, Interrupt};
+
 use std::fmt;
+use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -254,6 +259,8 @@ pub struct NovaRuntime {
     config: RuntimeConfig,
     failsafe: Arc<FailSafeState>,
     modules: Arc<RwLock<ModuleLoader>>,
+    hooks: Arc<RuntimeHooks>,
+    drivers: Arc<DriverRegistry>,
 }
 
 impl Default for NovaRuntime {
@@ -265,10 +272,13 @@ impl Default for NovaRuntime {
 impl NovaRuntime {
     /// Creates a new runtime with default configuration.
     pub fn new() -> Self {
+        let hooks = Arc::new(RuntimeHooks::default());
         Self {
             config: RuntimeConfig::default(),
             failsafe: Arc::new(FailSafeState::default()),
             modules: Arc::new(RwLock::new(ModuleLoader::new())),
+            hooks: hooks.clone(),
+            drivers: Arc::new(DriverRegistry::new(hooks)),
         }
     }
 
@@ -305,9 +315,50 @@ impl NovaRuntime {
     pub fn execute(&self, bytes: &[u8]) -> NovaResult<Value> {
         self.failsafe.ensure_unlocked()?;
         let module = self.modules.write().load_bytes("__entry", bytes)?;
+        let module_name = module.name().to_string();
+        self.hooks.emit_telemetry(TelemetryEvent::ModuleLoaded {
+            name: module_name.clone(),
+        });
+        self.hooks.emit_log(RuntimeLog::new(
+            "runtime",
+            format!("Executing {module_name}"),
+        ));
+        self.hooks.emit_debugger(DebuggerEvent::ExecutionStarted {
+            module: module_name.clone(),
+        });
         let backend = backend::active_backend();
-        let artifact = backend.compile(module.bytecode())?;
-        backend.execute(artifact, self.config.clone(), self.modules.clone())
+        let artifact = match backend.compile(module.bytecode()) {
+            Ok(artifact) => artifact,
+            Err(err) => {
+                self.hooks.emit_debugger(DebuggerEvent::ExecutionFailed {
+                    module: module_name.clone(),
+                    error: err.clone(),
+                });
+                return Err(err);
+            }
+        };
+        match backend.execute(
+            artifact,
+            self.config.clone(),
+            self.modules.clone(),
+            self.drivers.clone(),
+            self.hooks.clone(),
+        ) {
+            Ok(value) => {
+                self.hooks.emit_debugger(DebuggerEvent::ExecutionFinished {
+                    module: module_name,
+                    result: value.clone(),
+                });
+                Ok(value)
+            }
+            Err(err) => {
+                self.hooks.emit_debugger(DebuggerEvent::ExecutionFailed {
+                    module: module_name,
+                    error: err.clone(),
+                });
+                Err(err)
+            }
+        }
     }
 
     /// Returns the active backend implementation.
@@ -326,17 +377,64 @@ impl NovaRuntime {
         name: impl Into<String>,
         bytes: &[u8],
     ) -> NovaResult<Arc<Module>> {
-        self.modules.write().load_bytes(name, bytes)
+        let module = self.modules.write().load_bytes(name, bytes)?;
+        self.hooks.emit_telemetry(TelemetryEvent::ModuleLoaded {
+            name: module.name().to_string(),
+        });
+        Ok(module)
     }
 
     /// Loads a module from the filesystem.
     pub fn load_module_file(&self, path: impl AsRef<Path>) -> NovaResult<Arc<Module>> {
-        self.modules.write().load_file(path)
+        let path = path.as_ref();
+        let module = self.modules.write().load_file(path)?;
+        self.hooks.emit_telemetry(TelemetryEvent::ModuleLoaded {
+            name: module.name().to_string(),
+        });
+        Ok(module)
     }
 
     /// Returns a list of loaded modules.
     pub fn modules(&self) -> Vec<Arc<Module>> {
         self.modules.read().modules().cloned().collect()
+    }
+
+    /// Returns the shared runtime hooks used for debugger/logging integration.
+    pub fn hooks(&self) -> Arc<RuntimeHooks> {
+        self.hooks.clone()
+    }
+
+    /// Returns the driver registry used to back NovaCore driver bindings.
+    pub fn driver_registry(&self) -> Arc<DriverRegistry> {
+        self.drivers.clone()
+    }
+
+    /// Registers a driver descriptor with the runtime.
+    pub fn register_driver(&self, descriptor: DriverDescriptor) -> NovaResult<()> {
+        self.drivers
+            .register_descriptor(descriptor)
+            .map_err(|err| NovaError::Native(err.to_string()))
+    }
+
+    /// Signals an interrupt for the provided driver.
+    pub fn signal_interrupt(&self, name: &str, irq: u32, payload: Option<u32>) -> NovaResult<()> {
+        self.drivers
+            .trigger_interrupt(name, Interrupt::new(irq, payload))
+            .map_err(|err| NovaError::Native(err.to_string()))
+    }
+
+    /// Convenience helper for NovaShell to execute a `.novac` program from disk.
+    pub fn execute_file(&self, path: impl AsRef<Path>) -> NovaResult<Value> {
+        let path = path.as_ref();
+        let bytes = fs::read(path).map_err(|err| NovaError::Internal(err.to_string()))?;
+        self.hooks.emit_log(RuntimeLog::new(
+            "runtime",
+            format!("Executing {}", path.display()),
+        ));
+        self.hooks.emit_telemetry(TelemetryEvent::ShellLoaded {
+            path: path.to_path_buf(),
+        });
+        self.execute(&bytes)
     }
 }
 
