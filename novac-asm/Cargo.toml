@@ -1,0 +1,9 @@
+[package]
+name = "novac-asm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+nova_core = { path = "../nova_core" }
