@@ -7,6 +7,16 @@ use thiserror::Error;
 
 use crate::integration::{RuntimeHooks, TelemetryEvent};
 
+pub mod audio;
+pub mod keyboard;
+pub mod sensor;
+pub mod storage;
+
+pub use audio::ensure_speaker_registered;
+pub use keyboard::ensure_keyboard_registered;
+pub use sensor::ensure_temperature_sensor;
+pub use storage::ensure_storage_registered;
+
 /// Descriptor used to register drivers from Rust host applications.
 #[derive(Debug, Clone)]
 pub struct DriverDescriptor {

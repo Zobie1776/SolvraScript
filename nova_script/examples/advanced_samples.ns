@@ -1,5 +1,13 @@
 // NovaScript advanced usage samples demonstrating new built-ins
 
+// --- Console Formatting Example -------------------------------------------
+// Demonstrates escape-aware strings and the new endl() helper.
+prt("Console output:\n- item 1\n- item 2");
+prt("Value: ");
+prt("42");
+endl(); // Emit newline without mutating the preceding print payload.
+println("Done.");
+
 // --- 2D Game Loop Example -------------------------------------------------
 // Register an update handler for a simple sprite.
 on_event("tick", fn update(payload) {

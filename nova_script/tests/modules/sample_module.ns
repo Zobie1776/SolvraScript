@@ -1,0 +1,9 @@
+fn greet(name) {
+    return "Hello, " + name;
+}
+
+fn double(value) {
+    return value * 2;
+}
+
+let version = 1;

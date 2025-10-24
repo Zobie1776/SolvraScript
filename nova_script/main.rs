@@ -1,5 +1,6 @@
 mod ast;
 mod interpreter;
+mod modules;
 mod parser;
 mod tokenizer;
 
@@ -9,20 +10,19 @@ use crate::tokenizer::Tokenizer;
 use interpreter::Interpreter;
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use std::process;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let verbose = args
-        .iter()
-        .any(|arg| arg == "--verbose" || arg == "-v");
+    let verbose = args.iter().any(|arg| arg == "--verbose" || arg == "-v");
 
     let file_arg = args.iter().skip(1).find(|arg| !arg.starts_with('-'));
 
-    let source = if let Some(filename) = file_arg {
+    let (source, script_path) = if let Some(filename) = file_arg {
         match fs::read_to_string(filename) {
-            Ok(content) => content,
+            Ok(content) => (content, Some(PathBuf::from(filename))),
             Err(e) => {
                 eprintln!("Error reading file '{}': {}", filename, e);
                 process::exit(1);
@@ -30,12 +30,15 @@ fn main() {
         }
     } else {
         // Default example program
-        r#"
+        (
+            r#"
         let x: int = 5 + 6 * 2;
         let y: int = x * 3;
         y + 1
         "#
-        .to_string()
+            .to_string(),
+            None,
+        )
     };
 
     if verbose {
@@ -88,7 +91,13 @@ fn main() {
     // Interpret
     println!("Interpreting...");
     let mut interp = Interpreter::new();
-    match interp.eval_program(&program) {
+    let eval_result = if let Some(path) = script_path.as_deref() {
+        interp.eval_program_with_origin(&program, Some(path))
+    } else {
+        interp.eval_program(&program)
+    };
+
+    match eval_result {
         Ok(Some(val)) => {
             println!("✓ Execution successful");
             println!("Result: {:?}", val);

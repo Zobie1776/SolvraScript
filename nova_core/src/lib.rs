@@ -22,6 +22,7 @@ pub mod backend;
 pub mod bytecode;
 pub mod concurrency;
 pub mod ffi;
+pub mod integration;
 pub mod memory;
 pub mod module;
 pub mod sys;
@@ -38,7 +39,10 @@ use thiserror::Error;
 use tracing::instrument;
 
 use crate::bytecode::spec::DebugSymbol;
+use crate::integration::RuntimeHooks;
 use crate::module::{Module, ModuleLoader};
+use crate::sys::drivers::DriverRegistry;
+use crate::sys::hal::{HardwareAbstractionLayer, SoftwareHal};
 
 /// Result type used across NovaCore.
 pub type NovaResult<T> = std::result::Result<T, NovaError>;
@@ -253,6 +257,8 @@ pub struct NovaRuntime {
     config: RuntimeConfig,
     failsafe: Arc<FailSafeState>,
     modules: Arc<RwLock<ModuleLoader>>,
+    hooks: Arc<RuntimeHooks>,
+    hal: Arc<dyn HardwareAbstractionLayer>,
 }
 
 impl Default for NovaRuntime {
@@ -264,10 +270,17 @@ impl Default for NovaRuntime {
 impl NovaRuntime {
     /// Creates a new runtime with default configuration.
     pub fn new() -> Self {
+        let hooks = Arc::new(RuntimeHooks::default());
+        let target = backend::active_target();
+        let hal_impl = SoftwareHal::new(target, hooks.clone());
+        let _ = hal_impl.register_builtin_devices();
+        let hal = Arc::new(hal_impl) as Arc<dyn HardwareAbstractionLayer>;
         Self {
             config: RuntimeConfig::default(),
             failsafe: Arc::new(FailSafeState::default()),
             modules: Arc::new(RwLock::new(ModuleLoader::new())),
+            hooks,
+            hal,
         }
     }
 
@@ -336,6 +349,21 @@ impl NovaRuntime {
     /// Returns a list of loaded modules.
     pub fn modules(&self) -> Vec<Arc<Module>> {
         self.modules.read().modules().cloned().collect()
+    }
+
+    /// Returns the runtime hooks used for debugger/logging integrations.
+    pub fn hooks(&self) -> Arc<RuntimeHooks> {
+        self.hooks.clone()
+    }
+
+    /// Returns the hardware abstraction layer backing the runtime.
+    pub fn hal(&self) -> Arc<dyn HardwareAbstractionLayer> {
+        self.hal.clone()
+    }
+
+    /// Convenience accessor for the driver registry.
+    pub fn driver_registry(&self) -> DriverRegistry {
+        self.hal.driver_registry()
     }
 }
 

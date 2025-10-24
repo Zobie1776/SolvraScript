@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 
 use crate::ast::{
-    BinaryOp, BindingKind, CatchBlock, Expr, FunctionDecl, ImportDecl, Literal, MatchArm,
-    Parameter, Pattern, Program, Stmt, StringPart, Type, UnaryOp, VariableDecl, Visibility,
+    BinaryOp, BindingKind, CatchBlock, Expr, FunctionDecl, ImportDecl, ImportSource, Literal,
+    MatchArm, Parameter, Pattern, Program, Stmt, StringPart, Type, UnaryOp, VariableDecl,
+    Visibility,
 };
 use crate::tokenizer::{Position, Token, TokenKind};
 
@@ -70,13 +71,11 @@ impl Parser {
     }
 
     fn skip_layout_tokens(&mut self) {
-        loop {
-            match &self.peek().kind {
-                TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent | TokenKind::Comment(_) => {
-                    self.advance();
-                }
-                _ => break,
-            }
+        while matches!(
+            &self.peek().kind,
+            TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent | TokenKind::Comment(_)
+        ) {
+            self.advance();
         }
     }
 
@@ -272,7 +271,7 @@ impl Parser {
         let start_pos = self.current_position();
         self.consume(&TokenKind::Import, "Expected 'import'")?;
 
-        let (module, items) = if self.check(&TokenKind::LeftBrace) {
+        let (source, items) = if self.check(&TokenKind::LeftBrace) {
             self.advance();
             let mut items = Vec::new();
             while !self.check(&TokenKind::RightBrace) {
@@ -286,10 +285,10 @@ impl Parser {
             }
             self.consume(&TokenKind::RightBrace, "Expected '}' after import list")?;
             self.expect_identifier_keyword("from")?;
-            let module = self.consume_identifier("Expected module name")?;
-            (module, items)
+            let source = self.parse_import_source()?;
+            (source, items)
         } else {
-            (self.consume_identifier("Expected module name")?, Vec::new())
+            (self.parse_import_source()?, Vec::new())
         };
 
         let alias = if self.match_identifier("as") {
@@ -301,13 +300,39 @@ impl Parser {
         self.consume_statement_terminator()?;
 
         let decl = ImportDecl {
-            module,
+            source,
             items,
             alias,
             position: start_pos,
         };
 
         Ok(Stmt::ImportDecl { decl })
+    }
+
+    fn parse_import_source(&mut self) -> Result<ImportSource, ParseError> {
+        match &self.peek().kind {
+            TokenKind::String(path) => {
+                let path = path.clone();
+                self.advance();
+                Ok(ImportSource::ScriptPath(path))
+            }
+            TokenKind::Less => {
+                self.advance();
+                let name = self.consume_identifier("Expected standard module name")?;
+                self.consume(&TokenKind::Greater, "Expected '>' after module name")?;
+                Ok(ImportSource::StandardModule(name))
+            }
+            TokenKind::Identifier(name) => {
+                let name = name.clone();
+                self.advance();
+                Ok(ImportSource::BareModule(name))
+            }
+            _ => Err(ParseError::UnexpectedToken {
+                expected: "module path (\"file.ns\" or <module>)".to_string(),
+                found: self.peek().kind.clone(),
+                position: self.peek().position.clone(),
+            }),
+        }
     }
 
     /// Parse if statement: if condition { body } [else { body }]

@@ -1,18 +1,29 @@
 #![allow(dead_code)]
 
 use crate::ast::*;
+use crate::modules::{ModuleArtifact, ModuleDescriptor, ModuleError, ModuleLoader};
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use rand::Rng;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ureq::Agent;
+
+use nova_core::backend;
+use nova_core::integration::RuntimeHooks as NovaRuntimeHooks;
+use nova_core::sys::hal::{
+    self, DeviceCapability, DeviceInfo, DeviceKind, HardwareAbstractionLayer, SensorKind,
+    SoftwareHal, StorageBus,
+};
 
 /// Supported arity constraints for native (built-in) functions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,6 +281,12 @@ impl From<ureq::Error> for RuntimeError {
     }
 }
 
+impl From<ModuleError> for RuntimeError {
+    fn from(value: ModuleError) -> Self {
+        RuntimeError::Custom(value.to_string())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariableEntry {
     value: Value,
@@ -282,6 +299,8 @@ enum Resource {
     File(File),
 }
 
+type SharedModuleLoader = Rc<RefCell<ModuleLoader>>;
+
 pub struct Interpreter {
     globals: Environment,
     locals: Vec<Environment>,
@@ -291,10 +310,22 @@ pub struct Interpreter {
     resources: HashMap<u64, Resource>,
     next_handle_id: u64,
     http_agent: Agent,
+    module_loader: SharedModuleLoader,
+    module_path_stack: Vec<PathBuf>,
+    hal: Arc<dyn HardwareAbstractionLayer>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
+        let loader = Rc::new(RefCell::new(ModuleLoader::new()));
+        let hooks = Arc::new(NovaRuntimeHooks::default());
+        let mut hal_impl = SoftwareHal::new(backend::active_target(), hooks);
+        let _ = hal_impl.register_builtin_devices();
+        let hal: Arc<dyn HardwareAbstractionLayer> = Arc::new(hal_impl);
+        Self::with_loader(loader, hal)
+    }
+
+    pub fn with_loader(loader: SharedModuleLoader, hal: Arc<dyn HardwareAbstractionLayer>) -> Self {
         let mut interpreter = Self {
             globals: HashMap::new(),
             locals: Vec::new(),
@@ -304,6 +335,9 @@ impl Interpreter {
             resources: HashMap::new(),
             next_handle_id: 1,
             http_agent: Agent::new(),
+            module_loader: loader,
+            module_path_stack: Vec::new(),
+            hal,
         };
         interpreter.init_builtins();
         interpreter
@@ -311,14 +345,54 @@ impl Interpreter {
 
     fn init_builtins(&mut self) {
         self.register_builtin(
+            "prt",
+            NativeArity::Range { min: 0, max: None },
+            Interpreter::builtin_prt,
+        );
+        // Backward-compatible alias.
+        self.register_builtin(
             "print",
             NativeArity::Range { min: 0, max: None },
-            Interpreter::builtin_print,
+            Interpreter::builtin_prt,
         );
         self.register_builtin(
             "println",
             NativeArity::Range { min: 0, max: None },
             Interpreter::builtin_println,
+        );
+        self.register_builtin("div", NativeArity::Exact(2), Interpreter::builtin_div);
+        // Legacy alias for scripts using the longer name.
+        self.register_builtin("division", NativeArity::Exact(2), Interpreter::builtin_div);
+        self.register_builtin("sbt", NativeArity::Exact(2), Interpreter::builtin_sbt);
+        self.register_builtin("subtract", NativeArity::Exact(2), Interpreter::builtin_sbt);
+        self.register_builtin("bool", NativeArity::Exact(1), Interpreter::builtin_bool);
+        self.register_builtin("boolean", NativeArity::Exact(1), Interpreter::builtin_bool);
+        self.register_builtin("endl", NativeArity::Exact(0), Interpreter::builtin_endl);
+        self.register_builtin(
+            "hal_devices",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_hal_devices,
+        );
+        self.register_builtin(
+            "hal_read",
+            NativeArity::Exact(2),
+            Interpreter::builtin_hal_read,
+        );
+        self.register_builtin(
+            "hal_write",
+            NativeArity::Exact(3),
+            Interpreter::builtin_hal_write,
+        );
+        self.register_builtin(
+            "hal_interrupt",
+            NativeArity::Range {
+                min: 2,
+                max: Some(3),
+            },
+            Interpreter::builtin_hal_interrupt,
         );
         self.register_builtin(
             "input",
@@ -468,17 +542,102 @@ impl Interpreter {
         );
     }
 
-    fn builtin_print(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let output = join_values(args);
-        print!("{}", output);
-        io::stdout().flush()?;
+    fn builtin_prt(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        // Preserve the exact formatting supplied by the script, including escape sequences
+        // that were decoded by the tokenizer. We intentionally avoid inserting separators or
+        // implicit newlines so NovaScript authors have full control over stdout layout.
+        write_values_to_stdout(args, false)?;
         Ok(Value::Null)
     }
 
     fn builtin_println(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let output = join_values(args);
-        println!("{}", output);
+        // `println` is a convenience wrapper over `prt` that appends a newline after the payload.
+        write_values_to_stdout(args, true)?;
         Ok(Value::Null)
+    }
+
+    fn builtin_endl(&mut self, _: &[Value]) -> Result<Value, RuntimeError> {
+        // Provides a semantic newline emitter so NovaScript code can mirror C++'s `std::endl`.
+        // Flushing stdout here keeps interactive shells responsive when `endl()` is used alone.
+        write_values_to_stdout(&[], true)?;
+        Ok(Value::Null)
+    }
+
+    fn builtin_hal_devices(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let filter = if let Some(arg) = args.get(0) {
+            Some(Self::parse_device_kind_arg(arg)?)
+        } else {
+            None
+        };
+        let devices = self.hal.list_devices(filter);
+        let results = devices
+            .into_iter()
+            .map(|info| Self::device_info_to_value(&info))
+            .collect();
+        Ok(Value::Array(results))
+    }
+
+    fn builtin_hal_read(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let handle = Self::expect_string(&args[0], "hal_read handle")?;
+        let register = expect_index(&args[1])?;
+        let device = self.find_device(&handle)?;
+        let value = self
+            .hal
+            .read_register(&device.handle, register)
+            .map_err(|err| RuntimeError::Custom(err.to_string()))?;
+        Ok(Value::Int(value as i64))
+    }
+
+    fn builtin_hal_write(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let handle = Self::expect_string(&args[0], "hal_write handle")?;
+        let register = expect_index(&args[1])?;
+        let value = Self::expect_u32(&args[2], "hal_write value")?;
+        let device = self.find_device(&handle)?;
+        self.hal
+            .write_register(&device.handle, register, value)
+            .map_err(|err| RuntimeError::Custom(err.to_string()))?;
+        Ok(Value::Null)
+    }
+
+    fn builtin_hal_interrupt(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let handle = Self::expect_string(&args[0], "hal_interrupt handle")?;
+        let irq = Self::expect_u32(&args[1], "hal_interrupt irq")?;
+        let payload = if let Some(arg) = args.get(2) {
+            Some(Self::expect_u32(arg, "hal_interrupt payload")?)
+        } else {
+            None
+        };
+        let device = self.find_device(&handle)?;
+        self.hal
+            .raise_interrupt(&device.handle, irq, payload)
+            .map_err(|err| RuntimeError::Custom(err.to_string()))?;
+        Ok(Value::Null)
+    }
+
+    fn builtin_div(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let numerator = expect_number(&args[0], "div")?;
+        let denominator = expect_number(&args[1], "div")?;
+        if denominator == 0.0 {
+            return Err(RuntimeError::DivisionByZero);
+        }
+
+        Ok(Value::Float(numerator / denominator))
+    }
+
+    fn builtin_sbt(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let lhs_is_int = matches!(args[0], Value::Int(_)) && matches!(args[1], Value::Int(_));
+        let left = expect_number(&args[0], "sbt")?;
+        let right = expect_number(&args[1], "sbt")?;
+
+        if lhs_is_int {
+            Ok(Value::Int((left - right) as i64))
+        } else {
+            Ok(Value::Float(left - right))
+        }
+    }
+
+    fn builtin_bool(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        Ok(Value::Bool(args[0].is_truthy()))
     }
 
     fn builtin_input(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -716,6 +875,39 @@ impl Interpreter {
     }
 
     pub fn eval_program(&mut self, program: &Program) -> Result<Option<Value>, RuntimeError> {
+        self.eval_program_with_origin::<&Path>(program, None)
+    }
+
+    pub fn eval_program_with_origin<P>(
+        &mut self,
+        program: &Program,
+        origin: Option<P>,
+    ) -> Result<Option<Value>, RuntimeError>
+    where
+        P: AsRef<Path>,
+    {
+        let maybe_dir = origin.as_ref().map(|origin_path| {
+            origin_path
+                .as_ref()
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."))
+        });
+
+        if let Some(dir) = &maybe_dir {
+            self.module_path_stack.push(dir.clone());
+        }
+
+        let result = self.eval_program_internal(program);
+
+        if maybe_dir.is_some() {
+            self.module_path_stack.pop();
+        }
+
+        result
+    }
+
+    fn eval_program_internal(&mut self, program: &Program) -> Result<Option<Value>, RuntimeError> {
         let mut last = None;
         for stmt in &program.statements {
             match self.eval_stmt(stmt) {
@@ -729,6 +921,10 @@ impl Interpreter {
 
     fn eval_stmt(&mut self, stmt: &Stmt) -> Result<Option<Value>, RuntimeError> {
         match stmt {
+            Stmt::ImportDecl { decl } => {
+                self.execute_import(decl)?;
+                Ok(None)
+            }
             Stmt::VariableDecl { decl } => {
                 let val = if let Some(expr) = &decl.initializer {
                     self.eval_expr(expr)?
@@ -875,6 +1071,283 @@ impl Interpreter {
                 "Statement: {:?}",
                 other
             ))),
+        }
+    }
+
+    fn execute_import(&mut self, decl: &ImportDecl) -> Result<(), RuntimeError> {
+        let base_dir = self.module_path_stack.last().map(|path| path.as_path());
+        let descriptor = {
+            let mut loader = self.module_loader.borrow_mut();
+            loader
+                .prepare_module(&decl.source, base_dir)
+                .map_err(RuntimeError::from)?
+        };
+
+        let exports = {
+            let cached = {
+                let loader = self.module_loader.borrow();
+                loader.exports_cloned(&descriptor.id)
+            };
+            if let Some(exports) = cached {
+                exports
+            } else {
+                let exports = self.evaluate_module_descriptor(&descriptor)?;
+                self.module_loader
+                    .borrow_mut()
+                    .store_exports(&descriptor.id, exports.clone());
+                exports
+            }
+        };
+
+        self.bind_imports(decl, exports)
+    }
+
+    fn evaluate_module_descriptor(
+        &mut self,
+        descriptor: &ModuleDescriptor,
+    ) -> Result<HashMap<String, Value>, RuntimeError> {
+        match &descriptor.artifact {
+            ModuleArtifact::Script { program, path } => {
+                let loader = self.module_loader.clone();
+                let mut module_interpreter = Interpreter::with_loader(loader, self.hal.clone());
+                let baseline = module_interpreter.globals_snapshot();
+                let origin: PathBuf = path.clone();
+                let _ =
+                    module_interpreter.eval_program_with_origin(program, Some(origin.as_path()))?;
+                let updated = module_interpreter.globals_snapshot();
+                let builtins: HashSet<String> = baseline.keys().cloned().collect();
+                let exports = updated
+                    .into_iter()
+                    .filter(|(name, _)| !builtins.contains(name))
+                    .collect::<HashMap<_, _>>();
+                Ok(exports)
+            }
+            ModuleArtifact::Compiled { path, .. } => Err(RuntimeError::Custom(format!(
+                "Compiled module '{}' is not yet supported",
+                path.display()
+            ))),
+        }
+    }
+
+    fn bind_imports(
+        &mut self,
+        decl: &ImportDecl,
+        exports: HashMap<String, Value>,
+    ) -> Result<(), RuntimeError> {
+        let namespace_value = Value::Object(exports.clone());
+        if decl.items.is_empty() {
+            let binding = decl
+                .alias
+                .clone()
+                .unwrap_or_else(|| Self::default_module_alias(&decl.source));
+            self.define_variable(binding, namespace_value, false);
+        } else {
+            for item in &decl.items {
+                if let Some(value) = exports.get(item) {
+                    self.define_variable(item.clone(), value.clone(), false);
+                } else {
+                    return Err(RuntimeError::Custom(format!(
+                        "Module {} does not export '{}'; available: {:?}",
+                        decl.source.display_name(),
+                        item,
+                        exports.keys().collect::<Vec<_>>()
+                    )));
+                }
+            }
+            if let Some(alias) = &decl.alias {
+                self.define_variable(alias.clone(), namespace_value.clone(), false);
+            }
+        }
+        Ok(())
+    }
+
+    fn find_device(&self, handle: &str) -> Result<DeviceInfo, RuntimeError> {
+        self.hal
+            .list_devices(None)
+            .into_iter()
+            .find(|info| info.handle.as_str() == handle)
+            .ok_or_else(|| RuntimeError::ArgumentError(format!("Unknown device handle '{handle}'")))
+    }
+
+    fn device_info_to_value(info: &DeviceInfo) -> Value {
+        let mut map = HashMap::new();
+        map.insert(
+            "handle".to_string(),
+            Value::String(info.handle.as_str().to_string()),
+        );
+        map.insert(
+            "name".to_string(),
+            Value::String(info.descriptor.name.clone()),
+        );
+        map.insert(
+            "kind".to_string(),
+            Value::String(Self::device_kind_label(&info.descriptor.kind)),
+        );
+        map.insert(
+            "registers".to_string(),
+            Value::Int(info.descriptor.register_count as i64),
+        );
+        let capabilities = info
+            .descriptor
+            .capabilities
+            .iter()
+            .map(|cap| Value::String(Self::device_capability_label(cap)))
+            .collect();
+        map.insert("capabilities".to_string(), Value::Array(capabilities));
+        Value::Object(map)
+    }
+
+    fn parse_device_kind_arg(value: &Value) -> Result<DeviceKind, RuntimeError> {
+        match value {
+            Value::String(name) => Self::parse_device_kind_string(name),
+            other => Err(RuntimeError::TypeError(format!(
+                "Device kind filter must be string, got {}",
+                other.type_name()
+            ))),
+        }
+    }
+
+    fn parse_device_kind_string(name: &str) -> Result<DeviceKind, RuntimeError> {
+        let lower = name.to_ascii_lowercase();
+        let result = match lower.as_str() {
+            "keyboard" => Some(DeviceKind::Keyboard),
+            "mouse" => Some(DeviceKind::Mouse),
+            "controller" | "gamepad" | "gamecontroller" => Some(DeviceKind::GameController),
+            "speaker" | "speaker:external" => Some(DeviceKind::Speaker { external: true }),
+            "speaker:internal" => Some(DeviceKind::Speaker { external: false }),
+            "microphone" | "mic" => Some(DeviceKind::Microphone),
+            "display" | "gpu" => Some(DeviceKind::Display),
+            "network" | "net" => Some(DeviceKind::Network),
+            "storage" => Some(DeviceKind::Storage(StorageBus::SdCard)),
+            _ if lower.starts_with("storage:") => {
+                let bus = match lower.split_once(':').map(|(_, b)| b) {
+                    Some("sd") | Some("sdcard") => StorageBus::SdCard,
+                    Some("nvme") => StorageBus::Nvme,
+                    Some("sata") => StorageBus::Sata,
+                    Some("usb") => StorageBus::Usb,
+                    Some(other) => StorageBus::Custom(other.to_string()),
+                    None => StorageBus::SdCard,
+                };
+                Some(DeviceKind::Storage(bus))
+            }
+            _ if lower.starts_with("sensor:") => {
+                let sensor = match lower.split_once(':').map(|(_, s)| s) {
+                    Some("temperature") => SensorKind::Temperature,
+                    Some("motion") => SensorKind::Motion,
+                    Some("proximity") => SensorKind::Proximity,
+                    Some("light") => SensorKind::Light,
+                    Some("humidity") => SensorKind::Humidity,
+                    Some("pressure") => SensorKind::Pressure,
+                    Some(other) => SensorKind::Custom(other.to_string()),
+                    None => SensorKind::Temperature,
+                };
+                Some(DeviceKind::Sensor(sensor))
+            }
+            _ if lower.starts_with("custom:") => lower
+                .split_once(':')
+                .map(|(_, label)| DeviceKind::Custom(label.to_string())),
+            _ => None,
+        };
+
+        result
+            .ok_or_else(|| RuntimeError::ArgumentError(format!("Unknown device kind '{}'.", name)))
+    }
+
+    fn device_kind_label(kind: &DeviceKind) -> String {
+        match kind {
+            DeviceKind::Keyboard => "keyboard".into(),
+            DeviceKind::Mouse => "mouse".into(),
+            DeviceKind::GameController => "controller".into(),
+            DeviceKind::Speaker { external } => {
+                if *external {
+                    "speaker-external".into()
+                } else {
+                    "speaker-internal".into()
+                }
+            }
+            DeviceKind::Microphone => "microphone".into(),
+            DeviceKind::Storage(bus) => format!("storage:{}", Self::storage_bus_label(bus)),
+            DeviceKind::Sensor(kind) => format!("sensor:{}", Self::sensor_label(kind)),
+            DeviceKind::Display => "display".into(),
+            DeviceKind::Network => "network".into(),
+            DeviceKind::Custom(label) => format!("custom:{}", label),
+        }
+    }
+
+    fn storage_bus_label(bus: &StorageBus) -> &'static str {
+        match bus {
+            StorageBus::Sata => "sata",
+            StorageBus::Nvme => "nvme",
+            StorageBus::Usb => "usb",
+            StorageBus::SdCard => "sdcard",
+            StorageBus::MemoryMapped => "mmio",
+            StorageBus::Custom(_) => "custom",
+        }
+    }
+
+    fn sensor_label(kind: &SensorKind) -> &'static str {
+        match kind {
+            SensorKind::Temperature => "temperature",
+            SensorKind::Motion => "motion",
+            SensorKind::Proximity => "proximity",
+            SensorKind::Light => "light",
+            SensorKind::Humidity => "humidity",
+            SensorKind::Pressure => "pressure",
+            SensorKind::Custom(_) => "custom",
+        }
+    }
+
+    fn device_capability_label(cap: &DeviceCapability) -> String {
+        match cap {
+            DeviceCapability::Input => "input".into(),
+            DeviceCapability::Output => "output".into(),
+            DeviceCapability::Audio => "audio".into(),
+            DeviceCapability::Haptic => "haptic".into(),
+            DeviceCapability::Storage => "storage".into(),
+            DeviceCapability::SensorReading => "sensor".into(),
+            DeviceCapability::Network => "network".into(),
+            DeviceCapability::Power => "power".into(),
+            DeviceCapability::Custom(label) => format!("custom:{}", label),
+        }
+    }
+
+    fn expect_string(value: &Value, context: &str) -> Result<String, RuntimeError> {
+        match value {
+            Value::String(s) => Ok(s.clone()),
+            other => Err(RuntimeError::TypeError(format!(
+                "{} expects string, got {}",
+                context,
+                other.type_name()
+            ))),
+        }
+    }
+
+    fn expect_u32(value: &Value, context: &str) -> Result<u32, RuntimeError> {
+        let number = expect_number(value, context)?;
+        if number < 0.0 || number > u32::MAX as f64 {
+            return Err(RuntimeError::ArgumentError(format!(
+                "{} out of range for u32",
+                context
+            )));
+        }
+        Ok(number as u32)
+    }
+
+    fn globals_snapshot(&self) -> HashMap<String, Value> {
+        self.globals
+            .iter()
+            .map(|(name, entry)| (name.clone(), entry.value.clone()))
+            .collect()
+    }
+
+    fn default_module_alias(source: &ImportSource) -> String {
+        match source {
+            ImportSource::StandardModule(name) | ImportSource::BareModule(name) => name.clone(),
+            ImportSource::ScriptPath(path) => Path::new(path)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or(path.as_str())
+                .to_string(),
         }
     }
 
@@ -1622,11 +2095,20 @@ impl Default for Interpreter {
     }
 }
 
-fn join_values(args: &[Value]) -> String {
-    args.iter()
-        .map(|value| value.to_string())
-        .collect::<Vec<_>>()
-        .join(" ")
+/// Write NovaScript values to stdout while preserving their exact textual representation.
+///
+/// The tokenizer already resolved escape sequences inside string literals, so printing here
+/// simply delegates to `Display` and flushes the output stream. An optional newline mirrors
+/// the behaviour of `println` and the new `endl()` helper without hard-coding separators.
+fn write_values_to_stdout(args: &[Value], newline: bool) -> io::Result<()> {
+    let mut stdout = io::stdout().lock();
+    for value in args {
+        write!(stdout, "{value}")?;
+    }
+    if newline {
+        writeln!(stdout)?;
+    }
+    stdout.flush()
 }
 
 fn expect_number(value: &Value, name: &str) -> Result<f64, RuntimeError> {
@@ -1757,6 +2239,129 @@ mod tests {
     fn test_interpreter_creation() {
         let interpreter = Interpreter::new();
         assert!(!interpreter.globals.is_empty()); // Should have builtins
+    }
+
+    #[test]
+    fn test_prt_aliases_exist() {
+        let interpreter = Interpreter::new();
+        assert!(interpreter.globals.contains_key("prt"));
+        assert!(interpreter.globals.contains_key("print"));
+    }
+
+    #[test]
+    fn test_division_aliases() {
+        let mut interpreter = Interpreter::new();
+        let div_result = call_builtin(&mut interpreter, "div", vec![Value::Int(9), Value::Int(3)]);
+        assert_eq!(div_result, Value::Float(3.0));
+
+        let alias_result = call_builtin(
+            &mut interpreter,
+            "division",
+            vec![Value::Float(7.5), Value::Float(2.5)],
+        );
+        assert_eq!(alias_result, Value::Float(3.0));
+    }
+
+    #[test]
+    fn test_subtract_aliases() {
+        let mut interpreter = Interpreter::new();
+        let sbt_result = call_builtin(&mut interpreter, "sbt", vec![Value::Int(10), Value::Int(4)]);
+        assert_eq!(sbt_result, Value::Int(6));
+
+        let alias_result = call_builtin(
+            &mut interpreter,
+            "subtract",
+            vec![Value::Float(5.5), Value::Float(2.0)],
+        );
+        assert_eq!(alias_result, Value::Float(3.5));
+    }
+
+    #[test]
+    fn test_bool_aliases() {
+        let mut interpreter = Interpreter::new();
+        let bool_result = call_builtin(&mut interpreter, "bool", vec![Value::Int(1)]);
+        assert_eq!(bool_result, Value::Bool(true));
+
+        let alias_result = call_builtin(&mut interpreter, "boolean", vec![Value::Null]);
+        assert_eq!(alias_result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_hal_devices_builtin() {
+        let mut interpreter = Interpreter::new();
+        let devices = call_builtin(&mut interpreter, "hal_devices", vec![]);
+        let Value::Array(list) = devices else {
+            panic!("expected array from hal_devices");
+        };
+        assert!(!list.is_empty(), "expected at least one device");
+        let Value::Object(device) = &list[0] else {
+            panic!("expected object entry");
+        };
+        assert!(device.contains_key("handle"));
+    }
+
+    #[test]
+    fn test_hal_read_write_cycle() {
+        let mut interpreter = Interpreter::new();
+        let devices = call_builtin(&mut interpreter, "hal_devices", vec![]);
+        let Value::Array(list) = devices else {
+            panic!("expected array");
+        };
+        let Value::Object(first) = &list[0] else {
+            panic!("expected object");
+        };
+        let handle = match first.get("handle") {
+            Some(Value::String(s)) => s.clone(),
+            other => panic!("unexpected handle value: {other:?}"),
+        };
+
+        call_builtin(
+            &mut interpreter,
+            "hal_write",
+            vec![
+                Value::String(handle.clone()),
+                Value::Int(0),
+                Value::Int(123),
+            ],
+        );
+
+        let read = call_builtin(
+            &mut interpreter,
+            "hal_read",
+            vec![Value::String(handle), Value::Int(0)],
+        );
+        assert_eq!(read, Value::Int(123));
+    }
+
+    #[test]
+    fn test_hal_sensor_write_blocked() {
+        let mut interpreter = Interpreter::new();
+        let devices = call_builtin(
+            &mut interpreter,
+            "hal_devices",
+            vec![Value::String("sensor:temperature".into())],
+        );
+        let Value::Array(list) = devices else {
+            panic!("expected array");
+        };
+        let Value::Object(first) = &list[0] else {
+            panic!("expected object");
+        };
+        let handle = match first.get("handle") {
+            Some(Value::String(s)) => s.clone(),
+            _ => panic!("missing handle"),
+        };
+        let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            call_builtin(
+                &mut interpreter,
+                "hal_write",
+                vec![Value::String(handle), Value::Int(0), Value::Int(1)],
+            );
+        }));
+        assert!(
+            err.is_err(),
+            "sensor writes should panic with runtime error"
+        );
     }
 
     fn call_builtin(interpreter: &mut Interpreter, name: &str, args: Vec<Value>) -> Value {

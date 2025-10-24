@@ -2532,6 +2532,7 @@ name = "novascript"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "nova_core",
  "rand",
  "serde",
  "serde_json",

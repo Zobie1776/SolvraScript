@@ -2,7 +2,7 @@
 // Covers: arithmetic, variable assignment, function definition, if/else, while loops
 
 use novascript::{
-    ast::{self, BindingKind, Stmt, Type},
+    ast::{self, BindingKind, ImportSource, Stmt, Type},
     parser, tokenizer,
 };
 
@@ -71,6 +71,28 @@ fn test_const_declaration() {
     assert!(matches!(decl.binding, BindingKind::Const));
     assert!(!decl.is_mutable);
     assert_eq!(decl.var_type, Type::Int);
+}
+
+#[test]
+fn test_import_string_module_syntax() {
+    let program = tokenize_and_parse("import \"modules/sample.ns\";").unwrap();
+    let imports = program.find_imports();
+    assert_eq!(imports.len(), 1);
+    match &imports[0].source {
+        ImportSource::ScriptPath(path) => assert_eq!(path, "modules/sample.ns"),
+        other => panic!("expected script import, found {other:?}"),
+    }
+}
+
+#[test]
+fn test_import_std_module_syntax() {
+    let program = tokenize_and_parse("import <vector>;").unwrap();
+    let imports = program.find_imports();
+    assert_eq!(imports.len(), 1);
+    match &imports[0].source {
+        ImportSource::StandardModule(name) => assert_eq!(name, "vector"),
+        other => panic!("expected std module import, found {other:?}"),
+    }
 }
 
 #[test]

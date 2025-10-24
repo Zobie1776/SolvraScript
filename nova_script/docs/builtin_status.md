@@ -6,7 +6,11 @@ This document captures the current state of NovaScript's built-in runtime librar
 
 | Name | Status | Notes |
 | ---- | ------ | ----- |
-| `print` / `println` | ✅ Implemented | Variadic STDOUT helpers with flush handling. |
+| `prt` / `print` / `println` | ✅ Implemented | Escape-aware output; `prt` is the canonical form, `println` appends newline. |
+| `endl` | ✅ Implemented | Emits a single newline with an immediate flush for console-style formatting. |
+| `div` / `division` | ✅ Implemented | Variadic-free numeric division with divide-by-zero protection. |
+| `sbt` / `subtract` | ✅ Implemented | Numeric subtraction returning `int` when both inputs are integers. |
+| `bool` / `boolean` | ✅ Implemented | Truthiness coercion into NovaScript booleans. |
 | `input` | ✅ Implemented | Optional prompt, trims trailing newlines. |
 | `to_string` | ✅ Implemented | Uses runtime `Display` for conversion. |
 | `parse_int`, `parse_float` | ✅ Implemented | Graceful error handling with base support for integers. |

@@ -351,10 +351,32 @@ pub struct FunctionSignature {
     pub position: Position,
 }
 
+/// Source for `import` statements.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportSource {
+    /// Script module referenced by path (`"utils.ns"`).
+    ScriptPath(String),
+    /// Standard library module referenced with angle brackets (`<vector>`).
+    StandardModule(String),
+    /// Bare module name (legacy identifier form: `import math;`).
+    BareModule(String),
+}
+
+impl ImportSource {
+    /// Obtain a human readable label for diagnostics.
+    pub fn display_name(&self) -> String {
+        match self {
+            ImportSource::ScriptPath(path) => path.clone(),
+            ImportSource::StandardModule(name) => format!("<{}>", name),
+            ImportSource::BareModule(name) => name.clone(),
+        }
+    }
+}
+
 /// Import declarations
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportDecl {
-    pub module: String,
+    pub source: ImportSource,
     pub items: Vec<String>, // Empty for wildcard imports
     pub alias: Option<String>,
     pub position: Position,
@@ -1516,9 +1538,9 @@ impl InterfaceDecl {
 }
 
 impl ImportDecl {
-    pub fn new(module: String, position: Position) -> Self {
+    pub fn new(source: ImportSource, position: Position) -> Self {
         Self {
-            module,
+            source,
             items: vec![],
             alias: None,
             position,

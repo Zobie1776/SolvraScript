@@ -203,6 +203,7 @@ impl Tokenizer {
         keywords.insert("float".to_string(), TokenKind::FloatType);
         keywords.insert("string".to_string(), TokenKind::StringType);
         keywords.insert("bool".to_string(), TokenKind::BoolType);
+        keywords.insert("boolean".to_string(), TokenKind::BoolType);
         keywords.insert("then".to_string(), TokenKind::Then); // Add for if-expr
 
         Self {
@@ -228,6 +229,13 @@ impl Tokenizer {
             if self.current_char() == '\n' {
                 self.handle_newline();
                 continue;
+            }
+
+            // Reject single-quoted strings to enforce double-quoted literal style.
+            if self.current_char() == '\'' {
+                return Err(
+                    "Single-quoted strings are not supported. Use double quotes.".to_string(),
+                );
             }
 
             // Handle comments
@@ -394,23 +402,9 @@ impl Tokenizer {
 
         while !self.is_at_end() && self.current_char() != '"' {
             if self.current_char() == '\\' {
-                self.advance(); // consume backslash
-                if self.is_at_end() {
-                    return Err("Unterminated string literal".to_string());
-                }
-
-                match self.current_char() {
-                    'n' => string_value.push('\n'),
-                    't' => string_value.push('\t'),
-                    'r' => string_value.push('\r'),
-                    '\\' => string_value.push('\\'),
-                    '"' => string_value.push('"'),
-                    _ => {
-                        string_value.push('\\');
-                        string_value.push(self.current_char());
-                    }
-                }
-                self.advance();
+                // Decode escape sequences (e.g. "\n", "\t", "\\") before they reach the parser.
+                self.push_escape_sequence(&mut string_value, "string literal", '"')?;
+                continue;
             } else if self.current_char() == '$' && self.peek_char() == Some('{') {
                 // Handle string interpolation
                 has_interpolation = true;
@@ -471,23 +465,9 @@ impl Tokenizer {
 
         while !self.is_at_end() && self.current_char() != '`' {
             if self.current_char() == '\\' {
-                self.advance(); // consume backslash
-                if self.is_at_end() {
-                    return Err("Unterminated template string".to_string());
-                }
-
-                match self.current_char() {
-                    'n' => template_value.push('\n'),
-                    't' => template_value.push('\t'),
-                    'r' => template_value.push('\r'),
-                    '\\' => template_value.push('\\'),
-                    '`' => template_value.push('`'),
-                    _ => {
-                        template_value.push('\\');
-                        template_value.push(self.current_char());
-                    }
-                }
-                self.advance();
+                // Template literals reuse the same escape handling as quoted strings.
+                self.push_escape_sequence(&mut template_value, "template string", '`')?;
+                continue;
             } else {
                 template_value.push(self.advance());
             }
@@ -500,6 +480,48 @@ impl Tokenizer {
         self.advance(); // consume closing backtick
         self.emit_token(TokenKind::StringTemplate(template_value));
 
+        Ok(())
+    }
+
+    /// Consume a backslash escape and append the resolved character into `buffer`.
+    ///
+    /// The tokenizer performs the escape decoding so later stages operate on the
+    /// final character data. This keeps the parser and runtime free from having
+    /// to re-interpret escape sequences and guarantees that `print()` receives
+    /// the correct characters (e.g. `\n` becomes an actual newline).
+    fn push_escape_sequence(
+        &mut self,
+        buffer: &mut String,
+        context: &'static str,
+        closing_delimiter: char,
+    ) -> Result<(), String> {
+        self.advance(); // consume the '\'
+        if self.is_at_end() {
+            return Err(format!("Unterminated {}", context));
+        }
+
+        let escaped = self.current_char();
+        let resolved = match escaped {
+            'n' => Some('\n'),
+            't' => Some('\t'),
+            'r' => Some('\r'),
+            '0' => Some('\0'),
+            '\\' => Some('\\'),
+            '"' if closing_delimiter == '"' => Some('"'),
+            '\'' if closing_delimiter == '\'' => Some('\''),
+            '`' if closing_delimiter == '`' => Some('`'),
+            _ => None,
+        };
+
+        match resolved {
+            Some(ch) => buffer.push(ch),
+            None => {
+                buffer.push('\\');
+                buffer.push(escaped);
+            }
+        }
+
+        self.advance(); // move past the escaped character
         Ok(())
     }
 
@@ -781,16 +803,34 @@ print("Result: ${x}");"#;
 
     #[test]
     fn test_string_literals() {
-        let input = r#""hello" "world\n" "test""#;
-        let mut tokenizer = Tokenizer::new(input);
+        let cases = [
+            "hello",
+            "world\n",
+            "tab\tstop",
+            "quote: \"",
+            "backslash: \\",
+        ];
+
+        let input = cases
+            .iter()
+            .map(|case| {
+                let escaped = case
+                    .chars()
+                    .flat_map(|c| c.escape_default())
+                    .collect::<String>();
+                format!("\"{}\"", escaped)
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let mut tokenizer = Tokenizer::new(&input);
         let tokens = tokenizer.tokenize().unwrap();
 
-        let expected_kinds = vec![
-            TokenKind::String("hello".to_string()),
-            TokenKind::String("world\n".to_string()),
-            TokenKind::String("test".to_string()),
-            TokenKind::Eof,
-        ];
+        let mut expected_kinds: Vec<TokenKind> = cases
+            .iter()
+            .map(|case| TokenKind::String((*case).to_string()))
+            .collect();
+        expected_kinds.push(TokenKind::Eof);
 
         let actual_kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
         assert_eq!(actual_kinds, expected_kinds);
@@ -798,19 +838,39 @@ print("Result: ${x}");"#;
 
     #[test]
     fn test_template_strings() {
-        let input = r#"`hello` `world\n` `test`"#;
-        let mut tokenizer = Tokenizer::new(input);
+        let cases = ["hello", "world\n", "tab\tstop", "ticks: `", "backslash: \\"];
+
+        let input = cases
+            .iter()
+            .map(|case| {
+                let escaped = case
+                    .chars()
+                    .flat_map(|c| c.escape_default())
+                    .collect::<String>()
+                    .replace('`', r"\`");
+                format!("`{}`", escaped)
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let mut tokenizer = Tokenizer::new(&input);
         let tokens = tokenizer.tokenize().unwrap();
 
-        let expected_kinds = vec![
-            TokenKind::StringTemplate("hello".to_string()),
-            TokenKind::StringTemplate("world\n".to_string()),
-            TokenKind::StringTemplate("test".to_string()),
-            TokenKind::Eof,
-        ];
+        let mut expected_kinds: Vec<TokenKind> = cases
+            .iter()
+            .map(|case| TokenKind::StringTemplate((*case).to_string()))
+            .collect();
+        expected_kinds.push(TokenKind::Eof);
 
         let actual_kinds: Vec<TokenKind> = tokens.iter().map(|t| t.kind.clone()).collect();
         assert_eq!(actual_kinds, expected_kinds);
+    }
+
+    #[test]
+    fn test_single_quote_string_rejected() {
+        let mut tokenizer = Tokenizer::new("'oops'");
+        let error = tokenizer.tokenize().unwrap_err();
+        assert!(error.contains("Single-quoted strings"));
     }
 
     #[test]
