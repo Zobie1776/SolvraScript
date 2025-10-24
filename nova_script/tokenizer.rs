@@ -80,6 +80,7 @@ pub enum TokenKind {
     Not,
 
     // Delimiters
+    Pipe,
     LeftParen,
     RightParen,
     LeftBrace,
@@ -122,6 +123,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Identifier(s) => write!(f, "{}", s),
             TokenKind::Comment(s) => write!(f, "// {}", s),
             TokenKind::StringTemplate(s) => write!(f, "`{}`", s),
+            TokenKind::Pipe => write!(f, "|"),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -640,7 +642,7 @@ impl Tokenizer {
                     self.advance();
                     TokenKind::Or
                 } else {
-                    return Err(format!("Unexpected character: {}", ch));
+                    TokenKind::Pipe
                 }
             }
             '(' => TokenKind::LeftParen,

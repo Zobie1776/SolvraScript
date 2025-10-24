@@ -4,7 +4,7 @@ use crate::ast::*;
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use rand::Rng;
 use serde_json::Value as JsonValue;
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::HashMap;
 use std::env;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -270,7 +270,13 @@ impl From<ureq::Error> for RuntimeError {
     }
 }
 
-type Environment = HashMap<String, Value>;
+#[derive(Debug, Clone, PartialEq)]
+pub struct VariableEntry {
+    value: Value,
+    mutable: bool,
+}
+
+type Environment = HashMap<String, VariableEntry>;
 
 enum Resource {
     File(File),
@@ -451,10 +457,13 @@ impl Interpreter {
     ) {
         self.globals.insert(
             name.to_string(),
-            Value::NativeFunction {
-                name: name.to_string(),
-                arity,
-                func,
+            VariableEntry {
+                value: Value::NativeFunction {
+                    name: name.to_string(),
+                    arity,
+                    func,
+                },
+                mutable: false,
             },
         );
     }
@@ -726,7 +735,7 @@ impl Interpreter {
                 } else {
                     Value::Null
                 };
-                self.set_variable(decl.name.clone(), val);
+                self.define_variable(decl.name.clone(), val, decl.is_mutable);
                 Ok(None)
             }
 
@@ -820,7 +829,7 @@ impl Interpreter {
                         let mut result = Ok(None);
                         for item in elements {
                             self.push_scope();
-                            self.set_variable(variable.clone(), item);
+                            self.define_variable(variable.clone(), item, true);
                             match self.eval_stmt(body) {
                                 Ok(val) => result = Ok(val),
                                 Err(RuntimeError::Break) => {
@@ -858,7 +867,7 @@ impl Interpreter {
                     body: decl.body.clone(),
                     closure: self.capture_environment(),
                 };
-                self.set_variable(decl.name.clone(), func);
+                self.define_variable(decl.name.clone(), func, false);
                 Ok(None)
             }
 
@@ -896,7 +905,7 @@ impl Interpreter {
             Expr::Assignment { target, value, .. } => {
                 if let Expr::Identifier { name, .. } = &**target {
                     let val = self.eval_expr(value)?;
-                    self.set_variable(name.clone(), val.clone());
+                    self.assign_variable(name, val.clone())?;
                     Ok(val)
                 } else {
                     Err(RuntimeError::TypeError(
@@ -929,6 +938,23 @@ impl Interpreter {
                         obj.type_name()
                     ))),
                 }
+            }
+            Expr::Lambda {
+                params,
+                body,
+                position,
+            } => {
+                let closure = self.capture_environment();
+                let body_stmt = Stmt::Return {
+                    value: Some(*body.clone()),
+                    position: position.clone(),
+                };
+                Ok(Value::Function {
+                    name: format!("<lambda@{}:{}>", position.line, position.column),
+                    params: params.clone(),
+                    body: vec![body_stmt],
+                    closure,
+                })
             }
 
             other => Err(RuntimeError::NotImplemented(format!(
@@ -1461,7 +1487,7 @@ impl Interpreter {
                 name,
                 params,
                 body,
-                closure: _,
+                closure,
             } => {
                 if args.len() != params.len() {
                     return Err(RuntimeError::ArgumentError(format!(
@@ -1475,11 +1501,15 @@ impl Interpreter {
                 self.call_stack.push(name.clone());
 
                 // Create new scope with closure and parameters
-                self.push_scope();
+                if closure.is_empty() {
+                    self.push_scope();
+                } else {
+                    self.push_scope_with_closure(&closure);
+                }
 
                 // Bind parameters to arguments
                 for (param, arg) in params.iter().zip(args.iter()) {
-                    self.set_variable(param.clone(), arg.clone());
+                    self.define_variable(param.clone(), arg.clone(), true);
                 }
 
                 // Execute function body
@@ -1516,48 +1546,73 @@ impl Interpreter {
         self.locals.push(HashMap::new());
     }
 
+    fn push_scope_with_closure(&mut self, closure: &Environment) {
+        self.locals.push(closure.clone());
+    }
+
     fn pop_scope(&mut self) {
         self.locals.pop();
     }
 
-    fn set_variable(&mut self, name: String, value: Value) {
-        if let Some(scope) = self
-            .locals
-            .iter_mut()
-            .rev()
-            .find(|scope| scope.contains_key(&name))
-        {
-            scope.insert(name, value);
-            return;
-        }
-
-        if let Entry::Occupied(mut entry) = self.globals.entry(name.clone()) {
-            entry.insert(value);
-            return;
-        }
-
+    fn define_variable(&mut self, name: String, value: Value, mutable: bool) {
+        let entry = VariableEntry { value, mutable };
         if let Some(scope) = self.locals.last_mut() {
-            scope.insert(name, value);
+            scope.insert(name, entry);
         } else {
-            self.globals.insert(name, value);
+            self.globals.insert(name, entry);
         }
+    }
+
+    fn assign_variable(&mut self, name: &str, value: Value) -> Result<Value, RuntimeError> {
+        for scope in self.locals.iter_mut().rev() {
+            if let Some(entry) = scope.get_mut(name) {
+                if !entry.mutable {
+                    return Err(RuntimeError::TypeError(format!(
+                        "Cannot assign to immutable variable '{}'",
+                        name
+                    )));
+                }
+                entry.value = value.clone();
+                return Ok(value);
+            }
+        }
+
+        if let Some(entry) = self.globals.get_mut(name) {
+            if !entry.mutable {
+                return Err(RuntimeError::TypeError(format!(
+                    "Cannot assign to immutable variable '{}'",
+                    name
+                )));
+            }
+            entry.value = value.clone();
+            return Ok(value);
+        }
+
+        Err(RuntimeError::VariableNotFound(name.to_string()))
     }
 
     fn get_variable(&self, name: &str) -> Option<Value> {
-        // Search local scopes from innermost to outermost
         for scope in self.locals.iter().rev() {
-            if let Some(value) = scope.get(name) {
-                return Some(value.clone());
+            if let Some(entry) = scope.get(name) {
+                return Some(entry.value.clone());
             }
         }
-        // Search global scope
-        self.globals.get(name).cloned()
+        self.globals.get(name).map(|entry| entry.value.clone())
     }
 
     fn capture_environment(&self) -> Environment {
-        // For now, just capture globals. In a full implementation,
-        // you'd capture the current scope chain.
-        self.globals.clone()
+        let mut snapshot = HashMap::new();
+        for scope in &self.locals {
+            for (name, entry) in scope {
+                snapshot.insert(name.clone(), entry.clone());
+            }
+        }
+        for (name, entry) in &self.globals {
+            snapshot
+                .entry(name.clone())
+                .or_insert_with(|| entry.clone());
+        }
+        snapshot
     }
 }
 
@@ -1675,6 +1730,7 @@ fn value_from_http_response(response: ureq::Response) -> Result<Value, RuntimeEr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{parser::Parser, tokenizer::Tokenizer};
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1708,7 +1764,8 @@ mod tests {
             .globals
             .get(name)
             .cloned()
-            .expect("builtin not found");
+            .expect("builtin not found")
+            .value;
         interpreter.call_function(func, args).expect("builtin call")
     }
 
@@ -1771,6 +1828,44 @@ mod tests {
         );
         assert_eq!(triggered, Value::Int(1));
         assert_eq!(EVENT_CALLS.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_const_assignment_not_allowed() {
+        let source = "const LIMIT = 10; LIMIT = 5;";
+        let mut tokenizer = Tokenizer::new(source);
+        let tokens = tokenizer.tokenize().expect("tokenize const script");
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse().expect("parse const script");
+        let mut interpreter = Interpreter::new();
+        let err = interpreter
+            .eval_program(&program)
+            .expect_err("expected assignment error");
+        match err {
+            RuntimeError::TypeError(message) => {
+                assert!(message.contains("immutable variable 'LIMIT'"));
+            }
+            other => panic!("expected type error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_lambda_execution() {
+        let source = r#"
+            let offset = 3;
+            let calc = lambda |x| -> x + offset;
+            calc(4);
+        "#;
+        let mut tokenizer = Tokenizer::new(source);
+        let tokens = tokenizer.tokenize().expect("tokenize lambda script");
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse().expect("parse lambda script");
+        let mut interpreter = Interpreter::new();
+        let result = interpreter
+            .eval_program(&program)
+            .expect("evaluate lambda script")
+            .expect("lambda script should return value");
+        assert_eq!(result, Value::Int(7));
     }
 
     #[test]

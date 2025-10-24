@@ -1,6 +1,5 @@
 //! System abstraction layer for NovaCore.
 
-pub mod drivers;
 pub mod fs;
 pub mod net;
 

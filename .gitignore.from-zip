@@ -1,0 +1,15 @@
+target/
+**/target/
+node_modules/
+**/node_modules/
+.pnpm-store/
+.DS_Store
+.svelte-kit/
+**/.svelte-kit/
+dist/
+**/dist/
+build/
+**/build/
+!nova_core/build/
+!nova_core/build/**
+.DS_Store

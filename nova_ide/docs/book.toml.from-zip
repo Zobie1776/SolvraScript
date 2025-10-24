@@ -1,0 +1,7 @@
+[book]
+author = "NovaIDE Team"
+multilingual = false
+title = "NovaIDE Guide"
+
+[build]
+build-dir = "build"

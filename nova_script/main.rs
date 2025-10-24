@@ -14,9 +14,13 @@ use std::process;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let source = if args.len() > 1 {
-        // Read from file if provided
-        let filename = &args[1];
+    let verbose = args
+        .iter()
+        .any(|arg| arg == "--verbose" || arg == "-v");
+
+    let file_arg = args.iter().skip(1).find(|arg| !arg.starts_with('-'));
+
+    let source = if let Some(filename) = file_arg {
         match fs::read_to_string(filename) {
             Ok(content) => content,
             Err(e) => {
@@ -34,11 +38,11 @@ fn main() {
         .to_string()
     };
 
-    println!("NovaScript Interpreter");
-    println!("===================");
-    println!("Source code:");
-    println!("{}", source);
-    println!();
+    if verbose {
+        println!("NovaScript Interpreter");
+        println!("===================");
+        println!();
+    }
 
     // Tokenize
     println!("Tokenizing...");
@@ -55,7 +59,7 @@ fn main() {
     };
 
     // Debug: Print tokens if verbose mode
-    if args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string()) {
+    if verbose {
         println!("Tokens: {:#?}", tokens);
         println!();
     }
@@ -75,7 +79,7 @@ fn main() {
     };
 
     // Debug: Print AST if verbose mode
-    if args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string()) {
+    if verbose {
         println!("Parsed AST:");
         println!("{:#?}", program);
         println!();

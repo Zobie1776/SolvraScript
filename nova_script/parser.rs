@@ -69,6 +69,17 @@ impl Parser {
         Self { tokens, current: 0 }
     }
 
+    fn skip_layout_tokens(&mut self) {
+        loop {
+            match &self.peek().kind {
+                TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent | TokenKind::Comment(_) => {
+                    self.advance();
+                }
+                _ => break,
+            }
+        }
+    }
+
     /// Parse a complete NovaScript program
     pub fn parse(&mut self) -> Result<Program, ParseError> {
         let position = self.current_position();
@@ -807,16 +818,24 @@ impl Parser {
             }
             TokenKind::LeftBracket => {
                 self.advance();
+                self.skip_layout_tokens();
                 let mut elements = Vec::new();
                 if !self.check(&TokenKind::RightBracket) {
                     loop {
+                        self.skip_layout_tokens();
+                        if self.check(&TokenKind::RightBracket) {
+                            break;
+                        }
                         elements.push(self.parse_expression()?);
+                        self.skip_layout_tokens();
                         if !self.check(&TokenKind::Comma) {
                             break;
                         }
                         self.advance();
+                        self.skip_layout_tokens();
                     }
                 }
+                self.skip_layout_tokens();
                 self.consume(
                     &TokenKind::RightBracket,
                     "Expected ']' after array elements",
@@ -829,7 +848,10 @@ impl Parser {
             TokenKind::LeftBrace => self.parse_object_literal(),
             TokenKind::Match => self.parse_match_expression(),
             TokenKind::If => self.parse_if_expression(),
-            TokenKind::Lambda => self.parse_lambda_expression(),
+            TokenKind::Lambda => {
+                self.advance();
+                self.parse_lambda_expression()
+            }
             _ => Err(ParseError::UnexpectedToken {
                 expected: "expression".to_string(),
                 found: token.kind.clone(),
@@ -847,6 +869,10 @@ impl Parser {
 
         if !self.check(&TokenKind::RightBrace) {
             loop {
+                self.skip_layout_tokens();
+                if self.check(&TokenKind::RightBrace) {
+                    break;
+                }
                 // Store peeked token kind in a local variable to avoid borrow checker issues
                 let kind = &self.peek().kind;
                 let key = match kind {
@@ -867,7 +893,9 @@ impl Parser {
                 self.advance();
 
                 self.consume(&TokenKind::Colon, "Expected ':' after property name")?;
+                self.skip_layout_tokens();
                 let value = self.parse_expression()?;
+                self.skip_layout_tokens();
 
                 properties.push((key, value));
 
@@ -875,9 +903,11 @@ impl Parser {
                     break;
                 }
                 self.advance();
+                self.skip_layout_tokens();
             }
         }
 
+        self.skip_layout_tokens();
         self.consume(&TokenKind::RightBrace, "Expected '}' after object literal")?;
 
         Ok(Expr::Literal {
@@ -954,10 +984,10 @@ impl Parser {
     /// Parse lambda expression: |params| -> expr
     fn parse_lambda_expression(&mut self) -> Result<Expr, ParseError> {
         let start_pos = self.current_position();
-        self.consume(&TokenKind::Lambda, "Expected '|'")?;
+        self.consume(&TokenKind::Pipe, "Expected '|' after lambda keyword")?;
 
         let mut params = Vec::new();
-        if !self.check(&TokenKind::Lambda) {
+        if !self.check(&TokenKind::Pipe) {
             loop {
                 let param_name = self.consume_identifier("Expected parameter name")?;
                 params.push(param_name);
@@ -969,7 +999,7 @@ impl Parser {
             }
         }
 
-        self.consume(&TokenKind::Lambda, "Expected closing '|'")?;
+        self.consume(&TokenKind::Pipe, "Expected closing '|'")?;
         self.consume(&TokenKind::Arrow, "Expected '->' after lambda parameters")?;
 
         let body = Box::new(self.parse_expression()?);

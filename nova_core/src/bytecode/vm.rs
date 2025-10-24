@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -10,10 +9,7 @@ use rand::Rng;
 use crate::memory::gc::{Collector, GcObject};
 use crate::module::ModuleLoader;
 use crate::sys::{fs, net};
-use crate::{
-    DriverRegistry, Interrupt, NovaError, NovaResult, RuntimeConfig, RuntimeHooks, RuntimeLog,
-    StackFrame, Value,
-};
+use crate::{NovaError, NovaResult, RuntimeConfig, StackFrame, Value};
 
 use super::spec::{Constant, DebugSymbol, NovaBytecode, Opcode};
 
@@ -37,8 +33,6 @@ impl Vm {
         config: RuntimeConfig,
         bytecode: Arc<NovaBytecode>,
         modules: Arc<RwLock<ModuleLoader>>,
-        drivers: Arc<DriverRegistry>,
-        hooks: Arc<RuntimeHooks>,
     ) -> Self {
         Self {
             cost_limit: config.cost_limit,
@@ -51,7 +45,7 @@ impl Vm {
             catch_stack: Vec::new(),
             globals: HashMap::new(),
             gc: Collector::new(),
-            builtins: NativeRegistry::new(drivers, hooks),
+            builtins: NativeRegistry::new(),
         }
     }
 
@@ -688,7 +682,7 @@ struct NativeRegistry {
 }
 
 impl NativeRegistry {
-    fn new(drivers: Arc<DriverRegistry>, hooks: Arc<RuntimeHooks>) -> Self {
+    fn new() -> Self {
         let mut registry = Self {
             functions: Vec::new(),
         };
@@ -764,83 +758,6 @@ impl NativeRegistry {
                 .map_err(|err| err.to_string())?;
             Ok(Value::Null)
         });
-        let driver_registry = drivers.clone();
-        let hooks_clone = hooks.clone();
-        registry.register("driver_register", 2, move |_, args| {
-            let name = expect_string(&args[0])?;
-            let count = expect_usize(&args[1], "register count")?;
-            driver_registry
-                .register_virtual_device(name, count)
-                .map_err(|err| err.to_string())?;
-            hooks_clone.emit_log(RuntimeLog::new(
-                "driver",
-                format!("Registered driver {name} with {count} registers"),
-            ));
-            Ok(Value::Null)
-        });
-        let driver_registry = drivers.clone();
-        let hooks_clone = hooks.clone();
-        registry.register("driver_write_u32", 3, move |_, args| {
-            let name = expect_string(&args[0])?;
-            let register = expect_usize(&args[1], "register index")?;
-            let value = expect_u32(&args[2], "register value")?;
-            driver_registry
-                .write_register(name, register, value)
-                .map_err(|err| err.to_string())?;
-            hooks_clone.emit_log(RuntimeLog::new(
-                "driver",
-                format!("{name}[{register}] = {value}"),
-            ));
-            Ok(Value::Null)
-        });
-        let driver_registry = drivers.clone();
-        registry.register("driver_read_u32", 2, move |_, args| {
-            let name = expect_string(&args[0])?;
-            let register = expect_usize(&args[1], "register index")?;
-            let value = driver_registry
-                .read_register(name, register)
-                .map_err(|err| err.to_string())?;
-            Ok(Value::Integer(value as i64))
-        });
-        let driver_registry = drivers.clone();
-        let hooks_clone = hooks.clone();
-        registry.register("driver_raise_interrupt", 3, move |_, args| {
-            let name = expect_string(&args[0])?;
-            let irq = expect_u32(&args[1], "irq")?;
-            let payload = match &args[2] {
-                Value::Null => None,
-                other => Some(expect_u32(other, "payload")?),
-            };
-            driver_registry
-                .trigger_interrupt(name, Interrupt::new(irq, payload))
-                .map_err(|err| err.to_string())?;
-            hooks_clone.emit_log(RuntimeLog::new(
-                "driver",
-                format!(
-                    "Queued interrupt {irq} for {name}{}",
-                    payload
-                        .map(|value| format!(" payload={value}"))
-                        .unwrap_or_default()
-                ),
-            ));
-            Ok(Value::Null)
-        });
-        let driver_registry = drivers;
-        registry.register("driver_next_interrupt", 1, move |vm, args| {
-            let name = expect_string(&args[0])?;
-            let interrupt = driver_registry
-                .next_interrupt(name)
-                .map_err(|err| err.to_string())?;
-            if let Some(interrupt) = interrupt {
-                let payload = interrupt
-                    .payload
-                    .map(|value| Value::Integer(value as i64))
-                    .unwrap_or(Value::Null);
-                Ok(vm.alloc_list(vec![Value::Integer(interrupt.irq as i64), payload]))
-            } else {
-                Ok(Value::Null)
-            }
-        });
         registry
     }
 
@@ -878,20 +795,4 @@ fn expect_string(value: &Value) -> Result<&str, String> {
         Value::String(text) => Ok(text),
         other => Err(format!("expected string got {}", other.type_name())),
     }
-}
-
-fn expect_usize(value: &Value, name: &str) -> Result<usize, String> {
-    let number = value.as_number().map_err(|msg| format!("{name}: {msg}"))?;
-    if number < 0.0 {
-        return Err(format!("{name} must be non-negative"));
-    }
-    if number.fract() != 0.0 {
-        return Err(format!("{name} must be an integer"));
-    }
-    Ok(number as usize)
-}
-
-fn expect_u32(value: &Value, name: &str) -> Result<u32, String> {
-    let number = expect_usize(value, name)?;
-    u32::try_from(number).map_err(|_| format!("{name} exceeds u32 range"))
 }

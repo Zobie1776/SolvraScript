@@ -1,0 +1,4 @@
+packages:
+  - "nova_ide/apps/*"
+  - "nova_ide/packages/*"
+  - "nova_ide/extensions/*"

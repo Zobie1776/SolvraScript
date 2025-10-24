@@ -1,0 +1,50 @@
+// Complex NovaScript test file
+
+let a = 3;
+let b = 4;
+let sum = a + b * 2;
+
+print("Initial sum:");
+print(sum);
+
+// Function to compute factorial
+fn factorial(n) {
+    let result = 1;
+    let i = 1;
+    while (i <= n) {
+        result = result * i;
+        i = i + 1;
+    }
+    return result;
+}
+
+print("Factorials from 1 to 5:");
+let x = 1;
+while (x <= 5) {
+    print("factorial(" + x + ") = " + factorial(x));
+    x = x + 1;
+}
+
+// Conditional logic
+let y = 10;
+if (y > 5) {
+    print("y is greater than 5");
+} else {
+    print("y is less than or equal to 5");
+}
+
+// Nested blocks and scope
+let z = 100;
+{
+    let z = 200;
+    print("Inner z: " + z);
+}
+print("Outer z: " + z);
+
+// Test division and subtraction
+let diff = z - a;
+let quot = z / a;
+print("z - a = " + diff);
+print("z / a = " + quot);
+
+print("Script complete.");

@@ -1,0 +1,12 @@
+[workspace]
+members = [
+  "nova_ai",
+  "nova_app_store",
+  "nova_cli",
+  "nova_core",
+  "novac-asm",
+  "nova_script",
+  "nova_lite",
+  "nova_ide/crates/*",
+]
+resolver = "2"
