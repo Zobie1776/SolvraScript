@@ -11,3 +11,6 @@ dist/
 build/
 **/build/
 .DS_Store
+
+# safety: never track overlay conflict copies
+*.from-zip
