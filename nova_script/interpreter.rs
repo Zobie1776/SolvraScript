@@ -2,9 +2,10 @@
 // nova_script/interpreter.rs
 //=============================================
 // Author: NovaOS Contributors
-// License: Apache 2.0
+// License: MIT (see LICENSE)
 // Goal: NovaScript runtime interpreter implementation
 // Objective: Execute parsed programs against NovaCore HAL and module system
+// Formatting: Zobie.format (.novaformat)
 //=============================================
 
 //=============================================
@@ -15,9 +16,7 @@
 
 use crate::ast::*;
 use crate::modules::{ModuleArtifact, ModuleDescriptor, ModuleError, ModuleLoader};
-use dirs::home_dir;
-use dirs::home_dir;
-use chrono::{DateTime, Datelike, Timelike, Utc};
+// time and home-dir resolved via `crate::platform` abstraction
 use rand::Rng;
 use serde_json::Value as JsonValue;
 use std::cell::RefCell;
@@ -27,19 +26,17 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::process::{Command, Stdio};
+// process spawning and execution moved to `crate::platform` abstraction
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use ureq::Agent;
+use crate::platform::{self, CommandSpec, CommandResult, StdioMode};
 
 use nova_core::backend;
 use nova_core::integration::RuntimeHooks as NovaRuntimeHooks;
 use nova_core::sys::hal::{
-    DeviceCapability, DeviceInfo, DeviceKind, HardwareAbstractionLayer, SensorKind, SoftwareHal,
-    StorageBus,
     DeviceCapability, DeviceInfo, DeviceKind, HardwareAbstractionLayer, SensorKind, SoftwareHal,
     StorageBus,
 };
@@ -50,8 +47,6 @@ use nova_core::sys::hal::{
 //=============================================
 // Section 2: Native Function Arity
 //=============================================
-
-
 
 /// Supported arity constraints for native (built-in) functions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,8 +98,6 @@ impl NativeArity {
 //=============================================
 //            Section 3: Runtime Values
 //=============================================
-
-
 
 /// NovaScript runtime value types
 #[derive(Debug, Clone)]
@@ -220,10 +213,6 @@ impl Value {
     //Purpose: Evaluate NovaScript truthiness semantics for conditional flow
     //Inputs: &self
     //Returns: bool
-    //Function: is_truthy
-    //Purpose: Evaluate NovaScript truthiness semantics for conditional flow
-    //Inputs: &self
-    //Returns: bool
     pub fn is_truthy(&self) -> bool {
         match self {
             Value::Bool(b) => *b,
@@ -238,10 +227,6 @@ impl Value {
     }
 
     /// Get the type name of the value
-    //Function: type_name
-    //Purpose: Report human-readable name for the underlying runtime variant
-    //Inputs: &self
-    //Returns: &'static str
     //Function: type_name
     //Purpose: Report human-readable name for the underlying runtime variant
     //Inputs: &self
@@ -266,10 +251,6 @@ impl Value {
     //Purpose: Attempt numeric coercion for arithmetic contexts
     //Inputs: &self
     //Returns: Option<f64>
-    //Function: to_number
-    //Purpose: Attempt numeric coercion for arithmetic contexts
-    //Inputs: &self
-    //Returns: Option<f64>
     pub fn to_number(&self) -> Option<f64> {
         match self {
             Value::Int(n) => Some(*n as f64),
@@ -281,10 +262,6 @@ impl Value {
         }
     }
 
-    //Function: as_str
-    //Purpose: Provide borrowed string slice for string-like values
-    //Inputs: &self
-    //Returns: Option<&str>
     //Function: as_str
     //Purpose: Provide borrowed string slice for string-like values
     //Inputs: &self
@@ -303,8 +280,6 @@ impl Value {
 //=============================================
 //            Section 4: Runtime Errors
 //=============================================
-
-
 
 #[derive(Debug, Clone)]
 pub enum RuntimeError {
@@ -365,8 +340,6 @@ impl From<ModuleError> for RuntimeError {
     }
 }
 
-
-
 //=============================================/*
 //  Describes NovaScript runtime errors and conversion helpers from system layers.
 //============================================*/
@@ -403,8 +376,6 @@ pub struct Interpreter {
     dry_run: bool,
 }
 
-
-
 //=============================================/*
 //  Defines environment storage, resource tracking, and core interpreter state.
 //============================================*/
@@ -417,24 +388,15 @@ impl Interpreter {
     //Purpose: Construct interpreter with default module loader and HAL
     //Inputs: None
     //Returns: Self
-    //Function: new
-    //Purpose: Construct interpreter with default module loader and HAL
-    //Inputs: None
-    //Returns: Self
     pub fn new() -> Self {
         let loader = Rc::new(RefCell::new(ModuleLoader::new()));
         let hooks = Arc::new(NovaRuntimeHooks::default());
-        let hal_impl = SoftwareHal::new(backend::active_target(), hooks);
         let hal_impl = SoftwareHal::new(backend::active_target(), hooks);
         let _ = hal_impl.register_builtin_devices();
         let hal: Arc<dyn HardwareAbstractionLayer> = Arc::new(hal_impl);
         Self::with_loader(loader, hal)
     }
 
-    //Function: with_loader
-    //Purpose: Build interpreter with injected module loader and HAL implementation
-    //Inputs: loader: SharedModuleLoader, hal: Arc<dyn HardwareAbstractionLayer>
-    //Returns: Self
     //Function: with_loader
     //Purpose: Build interpreter with injected module loader and HAL implementation
     //Inputs: loader: SharedModuleLoader, hal: Arc<dyn HardwareAbstractionLayer>
@@ -453,39 +415,11 @@ impl Interpreter {
             module_path_stack: Vec::new(),
             hal,
             dry_run: false,
-            dry_run: false,
         };
         interpreter.init_builtins();
         interpreter
     }
 
-    //Function: set_dry_run
-    //Purpose: Toggle dry-run mode to skip side-effectful operations (spawns).
-    //Inputs: &mut self, enabled: bool
-    //Returns: ()
-    pub fn set_dry_run(&mut self, enabled: bool) {
-        self.dry_run = enabled;
-    }
-
-    //Function: add_module_search_path
-    //Purpose: Allow callers to extend module resolution with additional directories.
-    //Inputs: &mut self, path: Into<PathBuf>
-    //Returns: ()
-    pub fn add_module_search_path<P: Into<PathBuf>>(&mut self, path: P) {
-        self.module_loader.borrow_mut().add_script_path(path.into());
-    }
-
-    //Function: eval_expression
-    //Purpose: Evaluate a single expression within the current interpreter context.
-    //Inputs: &mut self, expr: &Expr
-    //Returns: Result<Value, RuntimeError>
-    pub fn eval_expression(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
-        self.eval_expr(expr)
-    }
-
-    //=============================================
-    //            Section 7: Builtin Registration
-    //=============================================
     //Function: set_dry_run
     //Purpose: Toggle dry-run mode to skip side-effectful operations (spawns).
     //Inputs: &mut self, enabled: bool
@@ -650,16 +584,6 @@ impl Interpreter {
             Interpreter::builtin_process_spawn,
         );
         self.register_builtin(
-            "process_run",
-            NativeArity::Exact(1),
-            Interpreter::builtin_process_run,
-        );
-        self.register_builtin(
-            "process_spawn",
-            NativeArity::Exact(1),
-            Interpreter::builtin_process_spawn,
-        );
-        self.register_builtin(
             "open_file",
             NativeArity::Range {
                 min: 1,
@@ -691,29 +615,9 @@ impl Interpreter {
             Interpreter::builtin_fs_ls,
         );
         self.register_builtin(
-            "fs_exists",
-            NativeArity::Exact(1),
-            Interpreter::builtin_fs_exists,
-        );
-        self.register_builtin(
-            "fs_ls",
-            NativeArity::Exact(1),
-            Interpreter::builtin_fs_ls,
-        );
-        self.register_builtin(
             "close_file",
             NativeArity::Exact(1),
             Interpreter::builtin_close_file,
-        );
-        self.register_builtin(
-            "json_stringify",
-            NativeArity::Exact(1),
-            Interpreter::builtin_json_stringify,
-        );
-        self.register_builtin(
-            "json_parse",
-            NativeArity::Exact(1),
-            Interpreter::builtin_json_parse,
         );
         self.register_builtin(
             "json_stringify",
@@ -750,26 +654,6 @@ impl Interpreter {
                 max: Some(2),
             },
             Interpreter::builtin_trigger_event,
-        );
-        self.register_builtin(
-            "path_join",
-            NativeArity::Exact(2),
-            Interpreter::builtin_path_join,
-        );
-        self.register_builtin(
-            "path_home_dir",
-            NativeArity::Exact(0),
-            Interpreter::builtin_path_home_dir,
-        );
-        self.register_builtin(
-            "io_stdout_writeln",
-            NativeArity::Exact(1),
-            Interpreter::builtin_io_stdout_writeln,
-        );
-        self.register_builtin(
-            "io_stderr_writeln",
-            NativeArity::Exact(1),
-            Interpreter::builtin_io_stderr_writeln,
         );
         self.register_builtin(
             "path_join",
@@ -911,19 +795,11 @@ impl Interpreter {
     }
 
     fn builtin_input(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        if let Some(prompt) = args.first() {
-            // FIX: Use `first()` to read the optional prompt without indexing and
-            // rely on `Display` to avoid redundant `to_string()` allocation.
-            print!("{prompt}");
-            io::stdout().flush()?;
-        }
-
-        let mut buffer = String::new();
-        io::stdin().read_line(&mut buffer)?;
-        while buffer.ends_with(['\n', '\r']) {
-            buffer.pop();
-        }
-        Ok(Value::String(buffer))
+        let prompt = args.first().map(|v| v.to_string());
+        let line = platform::read_line(prompt.as_deref()).map_err(|e| {
+            RuntimeError::IoError(e.to_string())
+        })?;
+        Ok(Value::String(line))
     }
 
     fn builtin_parse_int(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1032,31 +908,23 @@ impl Interpreter {
     }
 
     fn builtin_time(&mut self, _args: &[Value]) -> Result<Value, RuntimeError> {
-        let now = SystemTime::now();
-        let duration = now
-            .duration_since(UNIX_EPOCH)
-            .map_err(|err| RuntimeError::Custom(err.to_string()))?;
-        Ok(Value::Float(duration.as_secs_f64()))
+        let t = platform::system_time().map_err(|e| RuntimeError::Custom(e.to_string()))?;
+        Ok(Value::Float(t))
     }
 
     fn builtin_now(&mut self, _args: &[Value]) -> Result<Value, RuntimeError> {
-        let now: DateTime<Utc> = Utc::now();
+        let ts = platform::system_timestamp().map_err(|e| RuntimeError::Custom(e.to_string()))?;
         let mut map = HashMap::new();
-        map.insert("iso".to_string(), Value::String(now.to_rfc3339()));
-        map.insert(
-            "timestamp".to_string(),
-            Value::Float(now.timestamp_millis() as f64 / 1000.0),
-        );
-        map.insert("year".to_string(), Value::Int(now.year() as i64));
-        map.insert("month".to_string(), Value::Int(now.month() as i64));
-        map.insert("day".to_string(), Value::Int(now.day() as i64));
-        map.insert("hour".to_string(), Value::Int(now.hour() as i64));
-        map.insert("minute".to_string(), Value::Int(now.minute() as i64));
-        map.insert("second".to_string(), Value::Int(now.second() as i64));
-        map.insert(
-            "nanosecond".to_string(),
-            Value::Int(now.nanosecond() as i64),
-        );
+        // iso and timestamp are best-effort; construct iso from fields
+        map.insert("iso".to_string(), Value::String(format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:09}Z", ts.year, ts.month, ts.day, ts.hour, ts.minute, ts.second, ts.nanosecond)));
+        map.insert("timestamp".to_string(), Value::Float(0.0));
+        map.insert("year".to_string(), Value::Int(ts.year as i64));
+        map.insert("month".to_string(), Value::Int(ts.month as i64));
+        map.insert("day".to_string(), Value::Int(ts.day as i64));
+        map.insert("hour".to_string(), Value::Int(ts.hour as i64));
+        map.insert("minute".to_string(), Value::Int(ts.minute as i64));
+        map.insert("second".to_string(), Value::Int(ts.second as i64));
+        map.insert("nanosecond".to_string(), Value::Int(ts.nanosecond as i64));
         Ok(Value::Object(map))
     }
 
@@ -1155,25 +1023,10 @@ impl Interpreter {
     //Purpose: Execute a NovaScript program without origin tracking
     //Inputs: &mut self, program: &Program
     //Returns: Result<Option<Value>, RuntimeError>
-    //=============================================/*
-    //  Registers NovaScript builtins and exposes host integrations.
-    //============================================*/
-    //=============================================
-    //            Section 8: Program Evaluation
-    //=============================================
-
-    //Function: eval_program
-    //Purpose: Execute a NovaScript program without origin tracking
-    //Inputs: &mut self, program: &Program
-    //Returns: Result<Option<Value>, RuntimeError>
     pub fn eval_program(&mut self, program: &Program) -> Result<Option<Value>, RuntimeError> {
         self.eval_program_with_origin::<&Path>(program, None)
     }
 
-    //Function: eval_program_with_origin
-    //Purpose: Evaluate a program while recording filesystem origin for module resolution
-    //Inputs: &mut self, program: &Program, origin: Option<P>
-    //Returns: Result<Option<Value>, RuntimeError>
     //Function: eval_program_with_origin
     //Purpose: Evaluate a program while recording filesystem origin for module resolution
     //Inputs: &mut self, program: &Program, origin: Option<P>
@@ -1831,7 +1684,7 @@ impl Interpreter {
                 "sleep duration must be non-negative".into(),
             ));
         }
-        thread::sleep(Duration::from_secs_f64(millis / 1000.0));
+        platform::sleep(Duration::from_secs_f64(millis / 1000.0));
         Ok(Value::Null)
     }
 
@@ -1856,9 +1709,9 @@ impl Interpreter {
         let key = args[0]
             .as_str()
             .ok_or_else(|| RuntimeError::TypeError("env_get expects string key".into()))?;
-        match env::var(key) {
-            Ok(value) => Ok(Value::String(value)),
-            Err(_) => Ok(Value::Null),
+        match platform::env_get(key) {
+            Some(v) => Ok(Value::String(v)),
+            None => Ok(Value::Null),
         }
     }
 
@@ -1870,7 +1723,7 @@ impl Interpreter {
         // interacts with global process state. NovaScript explicitly opts in
         // here to provide scripting access.
         unsafe {
-            env::set_var(key, args[1].to_string());
+            platform::env_set(key, &args[1].to_string());
         }
         Ok(Value::Null)
     }
@@ -1886,301 +1739,157 @@ impl Interpreter {
             .ok_or_else(|| {
                 RuntimeError::ArgumentError("process_run.program must be a string".into())
             })?;
-
-        let mut command = Command::new(program);
-
-        if let Some(Value::Array(arg_values)) = spec.get("args") {
-            for arg in arg_values {
-                command.arg(arg.to_string());
-            }
-        } else if let Some(other) = spec.get("args") {
-            return Err(RuntimeError::TypeError(format!(
-                "process_run.args must be an array, got {}",
-                other.type_name()
-            )));
-        }
-
-        if let Some(Value::String(dir)) = spec.get("cwd") {
-            command.current_dir(dir);
-        }
-
-        if let Some(env_values) = spec.get("env") {
-            let env_map = expect_object(env_values, "process_run.env")?;
-            if matches!(spec.get("clear_env"), Some(Value::Bool(true))) {
-                command.env_clear();
-            }
-            for (key, value) in env_map {
-                command.env(key, value.to_string());
-            }
-        }
-
-        if let Some(stdin) = parse_stdio_option(spec.get("stdin"), "process_run.stdin")? {
-            command.stdin(stdin);
-        }
-
-        if self.dry_run {
-            return Ok(Value::Object(process_status_map(true, Some(0), "", "")));
-        }
-
-        let output = command.output()?;
-        let success = output.status.success();
-        if matches!(spec.get("check"), Some(Value::Bool(true))) && !success {
-            return Err(RuntimeError::Custom(format!(
-                "process_run: command '{program}' failed (code {:?})",
-                output.status.code()
-            )));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        Ok(Value::Object(process_status_map(
-            success,
-            output.status.code(),
-            &stdout,
-            &stderr,
-        )))
-    }
-
-    fn builtin_process_spawn(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let spec = args.first().ok_or_else(|| {
-            RuntimeError::ArgumentError("process_spawn expects a command object".into())
-        })?;
-        let spec = expect_object(spec, "process_spawn spec")?;
-        let program = spec
-            .get("program")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                RuntimeError::ArgumentError("process_spawn.program must be a string".into())
-            })?;
-
-        if self.dry_run {
-            let mut map = HashMap::new();
-            map.insert("ok".to_string(), Value::Bool(true));
-            map.insert("pid".to_string(), Value::Int(0));
-            return Ok(Value::Object(map));
-        }
-
-        let mut command = Command::new(program);
-
-        if let Some(Value::Array(arg_values)) = spec.get("args") {
-            for arg in arg_values {
-                command.arg(arg.to_string());
-            }
-        } else if let Some(other) = spec.get("args") {
-            return Err(RuntimeError::TypeError(format!(
-                "process_spawn.args must be an array, got {}",
-                other.type_name()
-            )));
-        }
-
-        if let Some(Value::String(dir)) = spec.get("cwd") {
-            command.current_dir(dir);
-        }
-
-        if let Some(env_values) = spec.get("env") {
-            let env_map = expect_object(env_values, "process_spawn.env")?;
-            if matches!(spec.get("clear_env"), Some(Value::Bool(true))) {
-                command.env_clear();
-            }
-            for (key, value) in env_map {
-                command.env(key, value.to_string());
-            }
-        }
-
-        if let Some(stdin) = parse_stdio_option(spec.get("stdin"), "process_spawn.stdin")? {
-            command.stdin(stdin);
-        }
-        if let Some(stdout) = parse_stdio_option(spec.get("stdout"), "process_spawn.stdout")? {
-            command.stdout(stdout);
-        }
-        if let Some(stderr) = parse_stdio_option(spec.get("stderr"), "process_spawn.stderr")? {
-            command.stderr(stderr);
-        }
-
-        let child = command.spawn()?;
-        let mut map = HashMap::new();
-        map.insert("ok".to_string(), Value::Bool(true));
-        map.insert("pid".to_string(), Value::Int(child.id() as i64));
-        Ok(Value::Object(map))
-    }
-
-    fn builtin_process_run(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let spec = args.first().ok_or_else(|| {
-            RuntimeError::ArgumentError("process_run expects a command object".into())
-        })?;
-        let spec = expect_object(spec, "process_run spec")?;
-        let program = spec
-            .get("program")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                RuntimeError::ArgumentError("process_run.program must be a string".into())
-            })?;
-
-        let mut command = Command::new(program);
-
-        if let Some(Value::Array(arg_values)) = spec.get("args") {
-            for arg in arg_values {
-                command.arg(arg.to_string());
-            }
-        } else if let Some(other) = spec.get("args") {
-            return Err(RuntimeError::TypeError(format!(
-                "process_run.args must be an array, got {}",
-                other.type_name()
-            )));
-        }
-
-        if let Some(Value::String(dir)) = spec.get("cwd") {
-            command.current_dir(dir);
-        }
-
-        if let Some(env_values) = spec.get("env") {
-            let env_map = expect_object(env_values, "process_run.env")?;
-            if matches!(spec.get("clear_env"), Some(Value::Bool(true))) {
-                command.env_clear();
-            }
-            for (key, value) in env_map {
-                command.env(key, value.to_string());
-            }
-        }
-
-        if let Some(stdin) = parse_stdio_option(spec.get("stdin"), "process_run.stdin")? {
-            command.stdin(stdin);
-        }
-
-        if self.dry_run {
-            return Ok(Value::Object(process_status_map(true, Some(0), "", "")));
-        }
-
-        let output = command.output()?;
-        let success = output.status.success();
-        if matches!(spec.get("check"), Some(Value::Bool(true))) && !success {
-            return Err(RuntimeError::Custom(format!(
-                "process_run: command '{program}' failed (code {:?})",
-                output.status.code()
-            )));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        Ok(Value::Object(process_status_map(
-            success,
-            output.status.code(),
-            &stdout,
-            &stderr,
-        )))
-    }
-
-    fn builtin_process_spawn(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let spec = args.first().ok_or_else(|| {
-            RuntimeError::ArgumentError("process_spawn expects a command object".into())
-        })?;
-        let spec = expect_object(spec, "process_spawn spec")?;
-        let program = spec
-            .get("program")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                RuntimeError::ArgumentError("process_spawn.program must be a string".into())
-            })?;
-
-        if self.dry_run {
-            let mut map = HashMap::new();
-            map.insert("ok".to_string(), Value::Bool(true));
-            map.insert("pid".to_string(), Value::Int(0));
-            return Ok(Value::Object(map));
-        }
-
-        let mut command = Command::new(program);
-
-        if let Some(Value::Array(arg_values)) = spec.get("args") {
-            for arg in arg_values {
-                command.arg(arg.to_string());
-            }
-        } else if let Some(other) = spec.get("args") {
-            return Err(RuntimeError::TypeError(format!(
-                "process_spawn.args must be an array, got {}",
-                other.type_name()
-            )));
-        }
-
-        if let Some(Value::String(dir)) = spec.get("cwd") {
-            command.current_dir(dir);
-        }
-
-        if let Some(env_values) = spec.get("env") {
-            let env_map = expect_object(env_values, "process_spawn.env")?;
-            if matches!(spec.get("clear_env"), Some(Value::Bool(true))) {
-                command.env_clear();
-            }
-            for (key, value) in env_map {
-                command.env(key, value.to_string());
-            }
-        }
-
-        if let Some(stdin) = parse_stdio_option(spec.get("stdin"), "process_spawn.stdin")? {
-            command.stdin(stdin);
-        }
-        if let Some(stdout) = parse_stdio_option(spec.get("stdout"), "process_spawn.stdout")? {
-            command.stdout(stdout);
-        }
-        if let Some(stderr) = parse_stdio_option(spec.get("stderr"), "process_spawn.stderr")? {
-            command.stderr(stderr);
-        }
-
-        let child = command.spawn()?;
-        let mut map = HashMap::new();
-        map.insert("ok".to_string(), Value::Bool(true));
-        map.insert("pid".to_string(), Value::Int(child.id() as i64));
-        Ok(Value::Object(map))
-    }
-
-    fn builtin_open_file(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let path = args[0]
-            .as_str()
-            .ok_or_else(|| RuntimeError::TypeError("open_file expects string path".into()))?;
-        let mode = args.get(1).and_then(Value::as_str).unwrap_or("r");
-
-        let file = match mode {
-            "r" => File::open(path)?,
-            "w" => OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(path)?,
-            "a" => OpenOptions::new().append(true).create(true).open(path)?,
-            "rw" | "wr" => {
-                if !Path::new(path).exists() {
-                    // FIX: Create the file explicitly so we can open it without
-                    // calling `create(true)`, satisfying Clippy's requirement to
-                    // choose between append/truncate when materialising files.
-                    File::create(path)?;
-                }
-                OpenOptions::new().read(true).write(true).open(path)?
-            }
-            other => {
-                return Err(RuntimeError::ArgumentError(format!(
-                    "Unsupported file mode '{other}'"
-                )));
-            }
+        // Build a platform CommandSpec and execute via platform abstraction
+        let mut cmd = CommandSpec {
+            program: program.to_string(),
+            args: Vec::new(),
+            cwd: None,
+            env: None,
+            clear_env: false,
+            stdin: StdioMode::Piped,
+            stdout: StdioMode::Piped,
+            stderr: StdioMode::Piped,
         };
 
-        Ok(self.allocate_handle(Resource::File(file)))
+        if let Some(Value::Array(arg_values)) = spec.get("args") {
+            for arg in arg_values {
+                cmd.args.push(arg.to_string());
+            }
+        } else if let Some(other) = spec.get("args") {
+            return Err(RuntimeError::TypeError(format!(
+                "process_run.args must be an array, got {}",
+                other.type_name()
+            )));
+        }
+
+        if let Some(Value::String(dir)) = spec.get("cwd") {
+            cmd.cwd = Some(dir.to_string());
+        }
+
+        if let Some(env_values) = spec.get("env") {
+            let env_map = expect_object(env_values, "process_run.env")?;
+            let mut vec = Vec::new();
+            for (key, value) in env_map {
+                vec.push((key.clone(), value.to_string()));
+            }
+            cmd.env = Some(vec);
+            if matches!(spec.get("clear_env"), Some(Value::Bool(true))) {
+                cmd.clear_env = true;
+            }
+        }
+
+        if let Some(Value::String(mode)) = spec.get("stdin") {
+            cmd.stdin = match mode.as_str() {
+                "null" => StdioMode::Null,
+                "inherit" => StdioMode::Inherit,
+                _ => StdioMode::Piped,
+            }
+        }
+
+        if self.dry_run {
+            return Ok(Value::Object(process_status_map(true, Some(0), "", "")));
+        }
+
+        let result: CommandResult = platform::execute_command(&cmd).map_err(|e| RuntimeError::Custom(e.to_string()))?;
+        if matches!(spec.get("check"), Some(Value::Bool(true))) && !result.success {
+            return Err(RuntimeError::Custom(format!(
+                "process_run: command '{program}' failed (code {:?})",
+                result.exit_code
+            )));
+        }
+
+        Ok(Value::Object(process_status_map(
+            result.success,
+            result.exit_code,
+            &result.stdout,
+            &result.stderr,
+        )))
     }
 
-    fn builtin_read_file(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        match &args[0] {
-            Value::String(path) => Ok(Value::String(fs::read_to_string(path)?)),
-            Value::Handle(id) => {
-                let file = self.get_file_mut(*id)?;
-                file.seek(SeekFrom::Start(0))?;
-                let mut contents = String::new();
-                file.read_to_string(&mut contents)?;
-                Ok(Value::String(contents))
-            }
-            other => Err(RuntimeError::TypeError(format!(
-                "read_file expects path string or handle, got {}",
-                other.type_name()
-            ))),
+    fn builtin_process_spawn(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let spec = args.first().ok_or_else(|| {
+            RuntimeError::ArgumentError("process_spawn expects a command object".into())
+        })?;
+        let spec = expect_object(spec, "process_spawn spec")?;
+        let program = spec
+            .get("program")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                RuntimeError::ArgumentError("process_spawn.program must be a string".into())
+            })?;
+        if self.dry_run {
+            let mut map = HashMap::new();
+            map.insert("ok".to_string(), Value::Bool(true));
+            map.insert("pid".to_string(), Value::Int(0));
+            return Ok(Value::Object(map));
         }
+
+        // Build CommandSpec for spawning
+        let mut cmd = CommandSpec {
+            program: program.to_string(),
+            args: Vec::new(),
+            cwd: None,
+            env: None,
+            clear_env: false,
+            stdin: StdioMode::Piped,
+            stdout: StdioMode::Piped,
+            stderr: StdioMode::Piped,
+        };
+
+        if let Some(Value::Array(arg_values)) = spec.get("args") {
+            for arg in arg_values {
+                cmd.args.push(arg.to_string());
+            }
+        } else if let Some(other) = spec.get("args") {
+            return Err(RuntimeError::TypeError(format!(
+                "process_spawn.args must be an array, got {}",
+                other.type_name()
+            )));
+        }
+
+        if let Some(Value::String(dir)) = spec.get("cwd") {
+            cmd.cwd = Some(dir.to_string());
+        }
+
+        if let Some(env_values) = spec.get("env") {
+            let env_map = expect_object(env_values, "process_spawn.env")?;
+            let mut vec = Vec::new();
+            for (key, value) in env_map {
+                vec.push((key.clone(), value.to_string()));
+            }
+            cmd.env = Some(vec);
+            if matches!(spec.get("clear_env"), Some(Value::Bool(true))) {
+                cmd.clear_env = true;
+            }
+        }
+
+        if let Some(Value::String(mode)) = spec.get("stdin") {
+            cmd.stdin = match mode.as_str() {
+                "null" => StdioMode::Null,
+                "inherit" => StdioMode::Inherit,
+                _ => StdioMode::Piped,
+            }
+        }
+        if let Some(Value::String(mode)) = spec.get("stdout") {
+            cmd.stdout = match mode.as_str() {
+                "null" => StdioMode::Null,
+                "inherit" => StdioMode::Inherit,
+                _ => StdioMode::Piped,
+            }
+        }
+        if let Some(Value::String(mode)) = spec.get("stderr") {
+            cmd.stderr = match mode.as_str() {
+                "null" => StdioMode::Null,
+                "inherit" => StdioMode::Inherit,
+                _ => StdioMode::Piped,
+            }
+        }
+
+        let pid = platform::spawn_command(&cmd).map_err(|e| RuntimeError::Custom(e.to_string()))?;
+        let mut map = HashMap::new();
+        map.insert("ok".to_string(), Value::Bool(true));
+        map.insert("pid".to_string(), Value::Int(pid as i64));
+        Ok(Value::Object(map))
     }
 
     fn builtin_write_file(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -2191,11 +1900,9 @@ impl Interpreter {
                 .map(|v| matches!(v, Value::Bool(true)))
                 .unwrap_or(false);
             if append {
-                let mut file = OpenOptions::new().append(true).create(true).open(path)?;
-                file.write_all(content.as_bytes())?;
-                file.flush()?;
+                platform::append_file(path, &content).map_err(|e| RuntimeError::IoError(e.to_string()))?;
             } else {
-                fs::write(path, content)?;
+                platform::write_file(path, &content).map_err(|e| RuntimeError::IoError(e.to_string()))?;
             }
             Ok(Value::Null)
         } else if let Value::Handle(id) = &args[0] {
@@ -2225,7 +1932,7 @@ impl Interpreter {
         let path = args[0]
             .as_str()
             .ok_or_else(|| RuntimeError::TypeError("fs_exists expects string path".into()))?;
-        Ok(Value::Bool(Path::new(path).exists()))
+        Ok(Value::Bool(platform::path_exists(path)))
     }
 
     fn builtin_fs_ls(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -2233,32 +1940,9 @@ impl Interpreter {
             .as_str()
             .ok_or_else(|| RuntimeError::TypeError("fs_ls expects string path".into()))?;
         let mut entries = Vec::new();
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            if let Some(name) = entry.file_name().to_str() {
-                entries.push(Value::String(name.to_string()));
-            }
-        }
-        Ok(Value::Array(entries))
-    }
-
-    fn builtin_fs_exists(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let path = args[0]
-            .as_str()
-            .ok_or_else(|| RuntimeError::TypeError("fs_exists expects string path".into()))?;
-        Ok(Value::Bool(Path::new(path).exists()))
-    }
-
-    fn builtin_fs_ls(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let path = args[0]
-            .as_str()
-            .ok_or_else(|| RuntimeError::TypeError("fs_ls expects string path".into()))?;
-        let mut entries = Vec::new();
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            if let Some(name) = entry.file_name().to_str() {
-                entries.push(Value::String(name.to_string()));
-            }
+        let list = platform::list_directory(path).map_err(|e| RuntimeError::IoError(e.to_string()))?;
+        for name in list {
+            entries.push(Value::String(name));
         }
         Ok(Value::Array(entries))
     }
@@ -2355,69 +2039,24 @@ impl Interpreter {
         let right = args[1]
             .as_str()
             .ok_or_else(|| RuntimeError::TypeError("path_join expects string right".into()))?;
-        let joined = PathBuf::from(left).join(right);
-        Ok(Value::String(joined.to_string_lossy().to_string()))
+        Ok(Value::String(platform::path_join(left, right)))
     }
 
     fn builtin_path_home_dir(&mut self, _args: &[Value]) -> Result<Value, RuntimeError> {
-        if let Some(home) = home_dir() {
-            Ok(Value::String(home.to_string_lossy().to_string()))
+        if let Some(home) = platform::home_dir() {
+            Ok(Value::String(home))
         } else {
             Ok(Value::Null)
         }
     }
 
     fn builtin_io_stdout_writeln(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        writeln!(io::stdout(), "{}", args[0]).map_err(|err| RuntimeError::IoError(err.to_string()))?;
+        platform::println(&args[0].to_string()).map_err(|e| RuntimeError::IoError(e.to_string()))?;
         Ok(Value::Null)
     }
 
     fn builtin_io_stderr_writeln(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        writeln!(io::stderr(), "{}", args[0]).map_err(|err| RuntimeError::IoError(err.to_string()))?;
-        Ok(Value::Null)
-    }
-
-    fn builtin_json_stringify(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let json = value_to_json(&args[0]);
-        Ok(Value::String(json.to_string()))
-    }
-
-    fn builtin_json_parse(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let text = args[0]
-            .as_str()
-            .ok_or_else(|| RuntimeError::TypeError("json_parse expects string input".into()))?;
-        let parsed: JsonValue = serde_json::from_str(text).map_err(|err| {
-            RuntimeError::ArgumentError(format!("json_parse failed: {}", err))
-        })?;
-        Ok(json_to_value(&parsed))
-    }
-
-    fn builtin_path_join(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        let left = args[0]
-            .as_str()
-            .ok_or_else(|| RuntimeError::TypeError("path_join expects string left".into()))?;
-        let right = args[1]
-            .as_str()
-            .ok_or_else(|| RuntimeError::TypeError("path_join expects string right".into()))?;
-        let joined = PathBuf::from(left).join(right);
-        Ok(Value::String(joined.to_string_lossy().to_string()))
-    }
-
-    fn builtin_path_home_dir(&mut self, _args: &[Value]) -> Result<Value, RuntimeError> {
-        if let Some(home) = home_dir() {
-            Ok(Value::String(home.to_string_lossy().to_string()))
-        } else {
-            Ok(Value::Null)
-        }
-    }
-
-    fn builtin_io_stdout_writeln(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        writeln!(io::stdout(), "{}", args[0]).map_err(|err| RuntimeError::IoError(err.to_string()))?;
-        Ok(Value::Null)
-    }
-
-    fn builtin_io_stderr_writeln(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        writeln!(io::stderr(), "{}", args[0]).map_err(|err| RuntimeError::IoError(err.to_string()))?;
+        platform::eprintln(&args[0].to_string()).map_err(|e| RuntimeError::IoError(e.to_string()))?;
         Ok(Value::Null)
     }
 
@@ -2709,13 +2348,6 @@ impl Interpreter {
     //            Section 9: Environment Management
     //=============================================
 
-    //=============================================/*
-    //  Executes NovaScript AST nodes, handling statements, expressions, and control flow.
-    //============================================*/
-    //=============================================
-    //            Section 9: Environment Management
-    //=============================================
-
     fn push_scope(&mut self) {
         self.locals.push(HashMap::new());
     }
@@ -2793,18 +2425,11 @@ impl Interpreter {
 //=============================================/*
 //  Manages lexical scopes, assignment rules, and captured closures for functions.
 //============================================*/
-//=============================================/*
-//  Manages lexical scopes, assignment rules, and captured closures for functions.
-//============================================*/
 impl Default for Interpreter {
     fn default() -> Self {
         Self::new()
     }
 }
-
-//=============================================
-//            Section 10: Utility Helpers
-//=============================================
 
 //=============================================
 //            Section 10: Utility Helpers
@@ -2868,80 +2493,7 @@ fn expect_object<'a>(
     }
 }
 
-fn parse_stdio_option(
-    value: Option<&Value>,
-    context: &str,
-) -> Result<Option<Stdio>, RuntimeError> {
-    let Some(mode_value) = value else {
-        return Ok(None);
-    };
-    let mode = mode_value
-        .as_str()
-        .ok_or_else(|| RuntimeError::TypeError(format!("{context} expects string mode")))?;
-    match mode {
-        "null" => Ok(Some(Stdio::null())),
-        "inherit" => Ok(Some(Stdio::inherit())),
-        other => Err(RuntimeError::ArgumentError(format!(
-            "{context} must be \"null\" or \"inherit\", got '{other}'"
-        ))),
-    }
-}
-
-fn process_status_map(
-    success: bool,
-    code: Option<i32>,
-    stdout: &str,
-    stderr: &str,
-) -> HashMap<String, Value> {
-    let mut status = HashMap::new();
-    status.insert("success".to_string(), Value::Bool(success));
-    status.insert(
-        "code".to_string(),
-        match code {
-            Some(code) => Value::Int(code as i64),
-            None => Value::Null,
-        },
-    );
-
-    let mut result = HashMap::new();
-    result.insert("status".to_string(), Value::Object(status));
-    result.insert("stdout".to_string(), Value::String(stdout.to_string()));
-    result.insert("stderr".to_string(), Value::String(stderr.to_string()));
-    result
-}
-
-pub(crate) fn value_to_json(value: &Value) -> JsonValue {
-fn expect_object<'a>(
-    value: &'a Value,
-    context: &str,
-) -> Result<&'a HashMap<String, Value>, RuntimeError> {
-    match value {
-        Value::Object(map) => Ok(map),
-        other => Err(RuntimeError::TypeError(format!(
-            "{context} expects object, got {}",
-            other.type_name()
-        ))),
-    }
-}
-
-fn parse_stdio_option(
-    value: Option<&Value>,
-    context: &str,
-) -> Result<Option<Stdio>, RuntimeError> {
-    let Some(mode_value) = value else {
-        return Ok(None);
-    };
-    let mode = mode_value
-        .as_str()
-        .ok_or_else(|| RuntimeError::TypeError(format!("{context} expects string mode")))?;
-    match mode {
-        "null" => Ok(Some(Stdio::null())),
-        "inherit" => Ok(Some(Stdio::inherit())),
-        other => Err(RuntimeError::ArgumentError(format!(
-            "{context} must be \"null\" or \"inherit\", got '{other}'"
-        ))),
-    }
-}
+// parse_stdio_option removed: process spawn/run now use platform::CommandSpec and StdioMode
 
 fn process_status_map(
     success: bool,
@@ -2990,7 +2542,6 @@ pub(crate) fn value_to_json(value: &Value) -> JsonValue {
 }
 
 pub(crate) fn json_to_value(json: &JsonValue) -> Value {
-pub(crate) fn json_to_value(json: &JsonValue) -> Value {
     match json {
         JsonValue::Null => Value::Null,
         JsonValue::Bool(b) => Value::Bool(*b),
@@ -3035,13 +2586,6 @@ fn value_from_http_response(response: ureq::Response) -> Result<Value, RuntimeEr
     }
     Ok(Value::String(body))
 }
-
-//=============================================/*
-//  Provides IO helpers, numeric coercions, and conversions between NovaScript values and JSON.
-//============================================*/
-//=============================================
-//            Section 11: Tests
-//=============================================
 
 //=============================================/*
 //  Provides IO helpers, numeric coercions, and conversions between NovaScript values and JSON.
@@ -3330,16 +2874,6 @@ mod tests {
         let _ = fs::remove_file(&path);
     }
 }
-
-//=============================================/*
-//  Supplies regression coverage for interpreter value semantics and host integrations.
-//============================================*/
-//=============================================
-// End Of nova_script/interpreter.rs
-//=============================================
-// Notes:
-// -[@ZNOTE] Keep interpreter builtins synchronized with NovaCore capability surface.
-//=============================================
 
 //=============================================/*
 //  Supplies regression coverage for interpreter value semantics and host integrations.
