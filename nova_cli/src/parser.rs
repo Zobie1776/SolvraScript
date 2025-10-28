@@ -66,6 +66,7 @@ impl Parser {
     fn parse_pipeline(&mut self, input: &str) -> Result<Statement> {
         let mut chars = input.chars().peekable();
         let mut commands = Vec::new();
+        let mut background = false;
         loop {
             skip_whitespace(&mut chars);
             if chars.peek().is_none() {
@@ -77,13 +78,22 @@ impl Parser {
             if let Some('|') = chars.peek().copied() {
                 chars.next();
                 continue;
-            } else if chars.peek().is_some() {
-                bail!("unexpected characters after command");
             } else {
+                skip_whitespace(&mut chars);
+                if matches!(chars.peek(), Some('&')) {
+                    chars.next();
+                    skip_whitespace(&mut chars);
+                    if chars.peek().is_some() {
+                        bail!("unexpected characters after background operator");
+                    }
+                    background = true;
+                } else if chars.peek().is_some() {
+                    bail!("unexpected characters after command");
+                }
                 break;
             }
         }
-        Ok(Statement::Pipeline(Pipeline::new(commands)))
+        Ok(Statement::Pipeline(Pipeline::new(commands, background)))
     }
 
     fn parse_command(&mut self, chars: &mut Peekable<Chars<'_>>) -> Result<Command> {
@@ -94,6 +104,18 @@ impl Parser {
             skip_whitespace(chars);
             match chars.peek().copied() {
                 None | Some('|') => break,
+                Some('2') => {
+                    if Self::matches_merge(chars) {
+                        redirects.push(Redirection::new(RedirectionKind::StderrToStdout, None));
+                        continue;
+                    }
+                    let arg = self.read_argument(chars)?;
+                    if program.is_none() {
+                        program = Some(arg);
+                    } else {
+                        args.push(arg);
+                    }
+                }
                 Some('>') => {
                     chars.next();
                     let append = matches!(chars.peek(), Some('>'));
@@ -109,7 +131,7 @@ impl Parser {
                         } else {
                             RedirectionKind::Output
                         },
-                        target,
+                        Some(target),
                     ));
                 }
                 Some('<') => {
@@ -117,7 +139,7 @@ impl Parser {
                     let target = self
                         .read_argument(chars)
                         .context("missing file after input redirection")?;
-                    redirects.push(Redirection::new(RedirectionKind::Input, target));
+                    redirects.push(Redirection::new(RedirectionKind::Input, Some(target)));
                 }
                 _ => {
                     let arg = self.read_argument(chars)?;
@@ -186,6 +208,28 @@ impl Parser {
         if !buffer.is_empty() {
             parts.push(Word::Text(std::mem::take(buffer)));
         }
+    }
+
+    fn matches_merge(chars: &mut Peekable<Chars<'_>>) -> bool {
+        let mut clone = chars.clone();
+        if clone.next() != Some('2') {
+            return false;
+        }
+        if clone.next() != Some('>') {
+            return false;
+        }
+        if clone.next() != Some('&') {
+            return false;
+        }
+        if clone.next() != Some('1') {
+            return false;
+        }
+        // consume in original iterator
+        chars.next();
+        chars.next();
+        chars.next();
+        chars.next();
+        true
     }
 }
 

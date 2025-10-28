@@ -1,7 +1,7 @@
 use std::io::{self, BufRead, Write};
 
 use crate::backend;
-use crate::novac;
+use crate::nvc;
 use crate::runtime::{NovaError, NovaRuntime};
 use crate::NovaResult;
 
@@ -73,11 +73,11 @@ impl RuntimeRepl {
                 writeln!(writer, "  :help           Show this help message")
                     .map_err(map_io_error)?;
                 writeln!(writer, "  :quit/:exit     Exit the REPL").map_err(map_io_error)?;
-                writeln!(writer, "  :load <path>    Load a .novac module into memory")
+                writeln!(writer, "  :load <path>    Load a .nvc module into memory")
                     .map_err(map_io_error)?;
                 writeln!(
                     writer,
-                    "  :exec <path>    Execute a .novac binary file immediately"
+                    "  :exec <path>    Execute a .nvc binary file immediately"
                 )
                 .map_err(map_io_error)?;
                 writeln!(

@@ -1,7 +1,7 @@
 # Nova Runtime Tool
 
 The Nova runtime tool exposes the `nova_core::NovaRuntime` interpreter as a
-standalone executable. It supports one-off execution of `.novac` bytecode files
+standalone executable. It supports one-off execution of `.nvc` bytecode files
 as well as an interactive REPL for iterating on Nova assembly.
 
 The REPL understands a handful of commands prefixed with `:`. Use `:help` to
@@ -31,16 +31,16 @@ Launch the REPL with no arguments:
 cargo run -p nova_core --bin nova-runtime
 ```
 
-Execute a `.novac` bytecode file once and exit:
+Execute a `.nvc` bytecode file once and exit:
 
 ```bash
-cargo run -p nova_core --bin nova-runtime -- path/to/program.novac
+cargo run -p nova_core --bin nova-runtime -- path/to/program.nvc
 ```
 
 Enter the REPL after executing a program:
 
 ```bash
-cargo run -p nova_core --bin nova-runtime -- --exec path/to/program.novac --repl
+cargo run -p nova_core --bin nova-runtime -- --exec path/to/program.nvc --repl
 ```
 
 Use `--help` for a full list of supported flags at runtime.

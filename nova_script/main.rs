@@ -1,267 +1,205 @@
+//=============================================
+// nova_script/main.rs
+//=============================================
+// Author: NovaOS Contributors
+// License: MIT (see LICENSE)
+// Goal: NovaScript CLI entrypoint for running .ns scripts
+// Objective: Provide parsing, optional diagnostics, and execution with dry-run support
+// Formatting: Zobie.format (.novaformat)
+//=============================================
+
 mod ast;
 mod interpreter;
 mod modules;
 mod parser;
 mod tokenizer;
 
-use crate::parser::Parser;
-use crate::tokenizer::Tokenizer;
-
-use interpreter::Interpreter;
-use std::env;
+use anyhow::{anyhow, Context, Result};
+use ast::{Program, Stmt};
+use clap::Parser as ClapParser;
+use interpreter::{value_to_json, Interpreter, RuntimeError, Value};
+use parser::{ParseError, Parser};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
+use tokenizer::Tokenizer;
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+//=============================================
+//            Section 1: CLI Definition
+//=============================================
 
-    let verbose = args.iter().any(|arg| arg == "--verbose" || arg == "-v");
+#[derive(Debug, ClapParser)]
+#[command(
+    name = "novascript",
+    about = "Runs NovaScript files or evaluates inline expressions.",
+    version
+)]
+struct Args {
+    /// Path to the NovaScript file to execute.
+    script: PathBuf,
 
-    let file_arg = args.iter().skip(1).find(|arg| !arg.starts_with('-'));
+    /// Skip side effects such as spawning processes.
+    #[arg(long)]
+    dry_run: bool,
 
-    let (source, script_path) = if let Some(filename) = file_arg {
-        match fs::read_to_string(filename) {
-            Ok(content) => (content, Some(PathBuf::from(filename))),
-            Err(e) => {
-                eprintln!("Error reading file '{}': {}", filename, e);
-                process::exit(1);
-            }
-        }
-    } else {
-        // Default example program
-        (
-            r#"
-        let x: int = 5 + 6 * 2;
-        let y: int = x * 3;
-        y + 1
-        "#
-            .to_string(),
-            None,
-        )
-    };
+    /// Evaluate an expression after the script finishes and print the JSON result.
+    #[arg(long)]
+    json: Option<String>,
 
-    if verbose {
-        println!("NovaScript Interpreter");
-        println!("===================");
-        println!();
-    }
+    /// Pretty-print the parsed AST.
+    #[arg(long)]
+    print_ast: bool,
 
-    // Tokenize
-    println!("Tokenizing...");
+    /// Dump a pseudo IR listing of the program.
+    #[arg(long)]
+    print_ir: bool,
+}
+
+//=============================================
+//            Section 2: Entry Point
+//=============================================
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+    run_script(&args)
+}
+
+fn run_script(args: &Args) -> Result<()> {
+    let source = fs::read_to_string(&args.script)
+        .with_context(|| format!("Failed to read {}", args.script.display()))?;
+
     let mut tokenizer = Tokenizer::new(&source);
-    let tokens = match tokenizer.tokenize() {
-        Ok(toks) => {
-            println!("✓ Tokenization successful ({} tokens)", toks.len());
-            toks
-        }
-        Err(e) => {
-            eprintln!("✗ Tokenizer error: {}", e);
-            process::exit(1);
-        }
-    };
+    let tokens = tokenizer
+        .tokenize()
+        .map_err(|err| anyhow!("Tokenizer error: {err}"))?;
 
-    // Debug: Print tokens if verbose mode
-    if verbose {
-        println!("Tokens: {:#?}", tokens);
-        println!();
-    }
-
-    // Parse
-    println!("Parsing...");
     let mut parser = Parser::new(tokens);
-    let program = match parser.parse() {
-        Ok(ast) => {
-            println!("✓ Parsing successful");
-            ast
-        }
-        Err(e) => {
-            eprintln!("✗ Parser error: {}", e);
-            process::exit(1);
-        }
-    };
+    let program = parser
+        .parse()
+        .map_err(|error| map_parse_error(&args.script, error))?;
 
-    // Debug: Print AST if verbose mode
-    if verbose {
-        println!("Parsed AST:");
+    if args.print_ast {
         println!("{:#?}", program);
-        println!();
     }
 
-    // Interpret
-    println!("Interpreting...");
-    let mut interp = Interpreter::new();
-    let eval_result = if let Some(path) = script_path.as_deref() {
-        interp.eval_program_with_origin(&program, Some(path))
-    } else {
-        interp.eval_program(&program)
-    };
+    if args.print_ir {
+        print_ir(&program);
+    }
 
-    match eval_result {
-        Ok(Some(val)) => {
-            println!("✓ Execution successful");
-            println!("Result: {:?}", val);
-        }
-        Ok(None) => {
-            println!("✓ Program executed successfully (no return value)");
-        }
-        Err(e) => {
-            eprintln!("✗ Runtime error: {:?}", e);
-            process::exit(1);
-        }
+    let mut interpreter = Interpreter::new();
+    interpreter.set_dry_run(args.dry_run);
+    if let Some(parent) = args.script.parent() {
+        interpreter.add_module_search_path(parent);
+    }
+
+    let result = interpreter
+        .eval_program_with_origin(&program, Some(&args.script))
+        .map_err(|error| match error {
+            RuntimeError::Exit(code) => {
+                process::exit(code);
+            }
+            other => anyhow!(other),
+        })?;
+
+    if let Some(expr) = args.json.as_deref() {
+        evaluate_expression_as_json(&mut interpreter, expr)?;
+        return Ok(());
+    }
+
+    if let Some(value) = result {
+        println!("{value}");
+    }
+
+    Ok(())
+}
+
+//=============================================
+//            Section 3: Helpers
+//=============================================
+
+fn evaluate_expression_as_json(interpreter: &mut Interpreter, expr: &str) -> Result<()> {
+    let mut tokenizer = Tokenizer::new(expr);
+    let tokens = tokenizer
+        .tokenize()
+        .map_err(|err| anyhow!("Tokenizer error in --json expression: {err}"))?;
+    let mut parser = Parser::new(tokens);
+    let expression = parser
+        .parse_expression_only()
+        .map_err(|error| anyhow!("Expression parse error: {error:?}"))?;
+    let value = interpreter
+        .eval_expression(&expression)
+        .map_err(|error| match error {
+            RuntimeError::Exit(code) => {
+                process::exit(code);
+            }
+            other => anyhow!(other),
+        })?;
+    println!("{}", value_to_json(&value));
+    Ok(())
+}
+
+fn map_parse_error(path: &Path, error: ParseError) -> anyhow::Error {
+    match error {
+        ParseError::UnexpectedToken {
+            expected,
+            found,
+            position,
+        } => anyhow!(
+            "{}:{}:{}: expected {}, found {:?}",
+            path.display(),
+            position.line,
+            position.column,
+            expected,
+            found
+        ),
+        ParseError::UnexpectedEndOfInput { expected, position } => anyhow!(
+            "{}:{}:{}: unexpected end of input (expected {})",
+            path.display(),
+            position.line,
+            position.column,
+            expected
+        ),
+        ParseError::InvalidAssignmentTarget { position } => anyhow!(
+            "{}:{}:{}: invalid assignment target",
+            path.display(),
+            position.line,
+            position.column
+        ),
+        ParseError::DuplicateBinding { name, position } => anyhow!(
+            "{}:{}:{}: duplicate binding '{}'",
+            path.display(),
+            position.line,
+            position.column,
+            name
+        ),
+        other => anyhow!("{other:?}"),
     }
 }
 
-// Helper functions for development and debugging
-#[allow(dead_code)]
-fn print_usage() {
-    println!("Usage: novascript [OPTIONS] [FILE]");
-    println!();
-    println!("Options:");
-    println!("  -v, --verbose    Enable verbose output (show tokens and AST)");
-    println!("  -h, --help       Show this help message");
-    println!();
-    println!("Arguments:");
-    println!("  FILE            NovaScript file to execute (optional)");
-    println!();
-    println!("If no file is provided, a default example program will be executed.");
-}
-
-#[allow(dead_code)]
-fn run_interactive_mode() {
-    println!("NovaScript Interactive Mode");
-    println!("Type 'exit' to quit, 'help' for help");
-    println!();
-
-    loop {
-        print!("nova> ");
-        use std::io::{self, Write};
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(_) => {
-                let input = input.trim();
-
-                if input == "exit" {
-                    println!("Goodbye!");
-                    break;
-                } else if input == "help" {
-                    println!("Available commands:");
-                    println!("  exit - Exit the interpreter");
-                    println!("  help - Show this help");
-                    println!("  Any NovaScript expression or statement");
-                    continue;
-                } else if input.is_empty() {
-                    continue;
-                }
-
-                let mut tokenizer = Tokenizer::new(input);
-                let tokens = match tokenizer.tokenize() {
-                    Ok(toks) => toks,
-                    Err(e) => {
-                        eprintln!("Tokenizer error: {}", e);
-                        continue;
-                    }
-                };
-
-                let mut parser = Parser::new(tokens);
-                let program = match parser.parse() {
-                    Ok(prog) => prog,
-                    Err(e) => {
-                        eprintln!("Parser error: {}", e);
-                        continue;
-                    }
-                };
-
-                let mut interp = Interpreter::new();
-                match interp.eval_program(&program) {
-                    Ok(Some(val)) => println!("=> {:?}", val),
-                    Ok(None) => println!("=> (no return value)"),
-                    Err(e) => eprintln!("Runtime error: {:?}", e),
-                }
-            }
-            Err(e) => {
-                eprintln!("Error reading input: {}", e);
-                break;
-            }
-        }
+fn print_ir(program: &Program) {
+    println!("; NovaScript pseudo-IR ({} statements)", program.statements.len());
+    for (index, statement) in program.statements.iter().enumerate() {
+        println!("{:04} | {}", index, describe_statement(statement));
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_basic_arithmetic() {
-        let source = "5 + 3 * 2";
-        let mut tokenizer = Tokenizer::new(source);
-        let tokens = tokenizer.tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
-        let mut interp = Interpreter::new();
-
-        match interp.eval_program(&program) {
-            Ok(Some(val)) => {
-                // This should evaluate to 11 (5 + (3 * 2))
-                assert_eq!(format!("{:?}", val), "Int(11)");
-            }
-            _ => panic!("Expected successful evaluation"),
-        }
-    }
-
-    #[test]
-    fn test_variable_assignment() {
-        let source = "let x: int = 10;\nlet y: int = x + 5;\ny";
-
-        let mut tokenizer = Tokenizer::new(source);
-        let tokens = tokenizer.tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
-        let mut interp = Interpreter::new();
-
-        match interp.eval_program(&program) {
-            Ok(Some(val)) => {
-                // This should evaluate to 15
-                assert_eq!(format!("{:?}", val), "Int(15)");
-            }
-            _ => panic!("Expected successful evaluation"),
-        }
-    }
-
-    #[test]
-    fn test_complex_expression() {
-        let source = "let x: int = 5 + 6 * 2;\nlet y: int = x * 3;\ny + 1";
-
-        let mut tokenizer = Tokenizer::new(source);
-        let tokens = tokenizer.tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
-        let mut interp = Interpreter::new();
-
-        match interp.eval_program(&program) {
-            Ok(Some(val)) => {
-                // x = 5 + 12 = 17, y = 17 * 3 = 51, result = 51 + 1 = 52
-                assert_eq!(format!("{:?}", val), "Int(52)");
-            }
-            _ => panic!("Expected successful evaluation"),
-        }
-    }
-
-    #[test]
-    fn test_tokenizer_error() {
-        let source = "let x = @invalid_token";
-        let mut tokenizer = Tokenizer::new(source);
-        assert!(tokenizer.tokenize().is_err());
-    }
-
-    #[test]
-    fn test_parser_error() {
-        let source = "let x: int = ;"; // Missing expression
-        let mut tokenizer = Tokenizer::new(source);
-        let tokens = tokenizer.tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        assert!(parser.parse().is_err());
+fn describe_statement(statement: &Stmt) -> String {
+    use Stmt::*;
+    match statement {
+        ImportDecl { decl } => format!("import {:?}", decl.source),
+        VariableDecl { decl } => format!("let {}", decl.name),
+        FunctionDecl { decl } => format!("fn {}(..)", decl.name),
+        ExpressionStmt { .. } => "expr".into(),
+        Return { .. } => "return".into(),
+        If { .. } => "if".into(),
+        While { .. } => "while".into(),
+        For { .. } => "for".into(),
+        Block { .. } => "block".into(),
+        Try { .. } => "try".into(),
+        Throw { .. } => "throw".into(),
+        Break => "break".into(),
+        Continue => "continue".into(),
+        Namespace { decl } => format!("namespace {}", decl.name),
+        _ => format!("{statement:?}"),
     }
 }

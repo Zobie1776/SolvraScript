@@ -1,0 +1,26 @@
+# Theme Specification
+
+Themes are TOML documents containing color palettes, typography metrics, and visual effects. Reference theme:
+
+```toml
+[name]
+label = "Cyber Grid"
+description = "High contrast neon palette"
+
+[colors]
+surface = "#06060f"
+overlay = "#0f1f3a"
+primary = "#3ff2ff"
+accent = "#ff6ad5"
+danger = "#ff3860"
+warn = "#ffb400"
+success = "#3cf281"
+
+[typography]
+base_size = 14
+scale = 1.08
+
+[effects]
+shadow_blur = 18
+corner_radius = 12
+```

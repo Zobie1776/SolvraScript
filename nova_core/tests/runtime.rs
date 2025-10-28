@@ -1,3 +1,12 @@
+//===================================================
+// NovaCore Runtime
+//===================================================
+// Author: Zobie
+// License:
+// Goal:
+// Objective:
+//===================================================
+
 use nova_core::bytecode::assemble;
 use nova_core::bytecode::ast::{Ast, BinaryOp, Expr, Function, Span, Stmt};
 use nova_core::{NovaError, NovaRuntime, Value};

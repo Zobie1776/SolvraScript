@@ -76,6 +76,9 @@ pub trait ArchitectureBackend: Send + Sync {
 pub mod aarch64;
 #[cfg(feature = "backend-armv7")]
 pub mod arm;
+pub mod ir;
+pub mod lowering;
+pub mod register_alloc;
 #[cfg(feature = "backend-x86_64")]
 pub mod x86_64;
 

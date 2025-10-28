@@ -1,0 +1,10 @@
+[compositor]
+backend = "egl"
+profile = "lite"
+theme = "Minimal"
+
+[ipc]
+socket_path = "/run/user/1000/nova-gui.sock"
+
+[power]
+idle_timeout_secs = 300

@@ -102,8 +102,8 @@ fn print_help() {
     println!("OPTIONS:");
     println!("    -h, --help         Print this message");
     println!("    -V, --version      Print version information");
-    println!("        --exec <FILE>  Execute the provided .novac bytecode file");
-    println!("        --load <FILE>  Load a .novac module before entering the REPL (repeatable)");
+    println!("        --exec <FILE>  Execute the provided .nvc bytecode file");
+    println!("        --load <FILE>  Load a .nvc module before entering the REPL (repeatable)");
     println!("        --repl         Force REPL mode after executing FILE or --exec");
     println!("        --no-repl      Disable REPL mode after executing FILE or --exec");
     println!("");

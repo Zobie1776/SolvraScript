@@ -400,7 +400,7 @@ impl NovaRuntime {
             .map_err(|err| NovaError::Native(err.to_string()))
     }
 
-    /// Convenience helper for NovaShell to execute a `.novac` program from disk.
+    /// Convenience helper for NovaShell to execute a `.nvc` program from disk.
     pub fn execute_file(&self, path: impl AsRef<Path>) -> crate::NovaResult<Value> {
         let path = path.as_ref();
         let bytes = fs::read(path).map_err(|err| NovaError::Internal(err.to_string()))?;

@@ -25,6 +25,7 @@ pub mod ffi;
 pub mod integration;
 pub mod memory;
 pub mod module;
+pub mod novac;
 pub mod sys;
 
 use std::fmt;
@@ -43,6 +44,29 @@ use crate::integration::RuntimeHooks;
 use crate::module::{Module, ModuleLoader};
 use crate::sys::drivers::DriverRegistry;
 use crate::sys::hal::{HardwareAbstractionLayer, SoftwareHal};
+
+#[derive(Clone)]
+struct DebugHal(Arc<dyn HardwareAbstractionLayer>);
+
+impl DebugHal {
+    fn new(hal: Arc<dyn HardwareAbstractionLayer>) -> Self {
+        Self(hal)
+    }
+
+    fn clone_arc(&self) -> Arc<dyn HardwareAbstractionLayer> {
+        self.0.clone()
+    }
+
+    fn driver_registry(&self) -> DriverRegistry {
+        self.0.driver_registry()
+    }
+}
+
+impl fmt::Debug for DebugHal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HardwareAbstractionLayer").finish()
+    }
+}
 
 /// Result type used across NovaCore.
 pub type NovaResult<T> = std::result::Result<T, NovaError>;
@@ -258,7 +282,7 @@ pub struct NovaRuntime {
     failsafe: Arc<FailSafeState>,
     modules: Arc<RwLock<ModuleLoader>>,
     hooks: Arc<RuntimeHooks>,
-    hal: Arc<dyn HardwareAbstractionLayer>,
+    hal: DebugHal,
 }
 
 impl Default for NovaRuntime {
@@ -280,7 +304,7 @@ impl NovaRuntime {
             failsafe: Arc::new(FailSafeState::default()),
             modules: Arc::new(RwLock::new(ModuleLoader::new())),
             hooks,
-            hal,
+            hal: DebugHal::new(hal),
         }
     }
 
@@ -358,7 +382,7 @@ impl NovaRuntime {
 
     /// Returns the hardware abstraction layer backing the runtime.
     pub fn hal(&self) -> Arc<dyn HardwareAbstractionLayer> {
-        self.hal.clone()
+        self.hal.clone_arc()
     }
 
     /// Convenience accessor for the driver registry.
