@@ -1,3 +1,15 @@
+//================================================
+// [Novac Main ASM]
+//================================================
+// Author: NovaOS Contributors
+// License: Apache 2.0
+// Goal:
+// Objective:
+//================================================
+
+//================================================
+// Imports/Modules
+//================================================
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -5,6 +17,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use nova_core::novac::{self, Bytecode};
+
 
 #[derive(Parser)]
 #[command(author, version, about = "NovaCore assembler and disassembler", long_about = None)]
@@ -15,15 +28,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Assemble textual NovaCore bytecode into binary .novac files
+    /// Assemble textual NovaCore bytecode into binary .nvc files
     Assemble {
         /// Input assembly file
         input: PathBuf,
-        /// Output path (defaults to input with .novac extension)
+        /// Output path (defaults to input with .nvc extension)
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
-    /// Disassemble binary .novac files back into textual assembly
+    /// Disassemble binary .nvc files back into textual assembly
     Disassemble {
         /// Input binary file
         input: PathBuf,
@@ -42,7 +55,7 @@ fn main() -> Result<()> {
                 .with_context(|| format!("failed to read {}", input.display()))?;
             let bytecode = novac::assemble(&source)?;
             let bytes = bytecode.encode()?;
-            let output_path = output.unwrap_or_else(|| input.with_extension("novac"));
+            let output_path = output.unwrap_or_else(|| input.with_extension("nvc"));
             fs::write(&output_path, &bytes)
                 .with_context(|| format!("failed to write {}", output_path.display()))?;
             println!(

@@ -1,0 +1,18 @@
+[package]
+name = "nova_shell_launcher"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+
+[dependencies]
+anyhow = "1"
+dirs = "5"
+# IMPORTANT: features must be spelled correctly
+iced = { version = "=0.13.1", features = ["image", "svg"] }
+
+# Comment out if missing in workspace
+# theme_engine = { path = "../../crates/theme_engine" }
+# utils = { path = "../utils" }
+# tracing = "0.1"
+# serde = { version = "1", features = ["derive"] }
+# serde_json = "1"

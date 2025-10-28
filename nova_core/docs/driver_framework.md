@@ -38,7 +38,7 @@ runtime diagnostics (`NovaError::Native`).
 ## NovaCore Native Bindings
 
 Driver bindings are exposed as native functions callable from NovaCore modules
-and `.novac` programs:
+and `.nvc` programs:
 
 | Function | Parameters | Description |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ and `.novac` programs:
 
 These bindings are available immediately after `NovaRuntime::new()` because the
 VM initialises its native registry with driver functions.  The sample program in
-`samples/virtual_device_driver.novac` demonstrates how to register a device,
+`samples/virtual_device_driver.nvc` demonstrates how to register a device,
 write to a register, and poll for interrupts.
 
 ## Telemetry and Logging

@@ -231,7 +231,10 @@ impl Executor {
             let mut stdin_data = input.take();
             for redir in command.redirections() {
                 if let RedirectionKind::Input = redir.kind() {
-                    let path = self.expand_argument(redir.target())?;
+                    let Some(target) = redir.target() else {
+                        continue;
+                    };
+                    let path = self.expand_argument(target)?;
                     let contents = std::fs::read_to_string(&path)
                         .with_context(|| format!("reading input redirection from {}", path))?;
                     stdin_data = Some(contents);
@@ -311,7 +314,10 @@ impl Executor {
         for redir in redirections {
             match redir.kind() {
                 RedirectionKind::Output | RedirectionKind::Append => {
-                    let path = self.expand_argument(redir.target())?;
+                    let Some(target) = redir.target() else {
+                        continue;
+                    };
+                    let path = self.expand_argument(target)?;
                     let mut file = std::fs::OpenOptions::new()
                         .create(true)
                         .write(true)
@@ -326,7 +332,7 @@ impl Executor {
                         outcome = CommandOutcome::success(outcome.exit_code());
                     }
                 }
-                RedirectionKind::Input => {}
+                RedirectionKind::Input | RedirectionKind::StderrToStdout => {}
             }
         }
         if is_last && !self.suppress_output {

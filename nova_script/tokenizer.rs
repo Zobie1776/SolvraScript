@@ -239,9 +239,18 @@ impl Tokenizer {
             }
 
             // Handle comments
-            if self.current_char() == '/' && self.peek_char() == Some('/') {
-                self.handle_comment();
-                continue;
+            if self.current_char() == '/' {
+                match self.peek_char() {
+                    Some('/') => {
+                        self.handle_comment();
+                        continue;
+                    }
+                    Some('*') => {
+                        self.handle_block_comment()?;
+                        continue;
+                    }
+                    _ => {}
+                }
             }
 
             // Handle string literals
@@ -392,6 +401,38 @@ impl Tokenizer {
         }
 
         self.emit_token(TokenKind::Comment(comment.trim().to_string()));
+    }
+
+    fn handle_block_comment(&mut self) -> Result<(), String> {
+        self.advance(); // consume '/'
+        self.advance(); // consume '*'
+
+        let mut comment = String::new();
+        let mut terminated = false;
+
+        while !self.is_at_end() {
+            let ch = self.advance();
+
+            if ch == '*' && self.peek_char() == Some('/') {
+                self.advance(); // consume closing '/'
+                terminated = true;
+                break;
+            }
+
+            comment.push(ch);
+        }
+
+        if !terminated {
+            return Err("Unterminated block comment".to_string());
+        }
+
+        let normalized = comment
+            .lines()
+            .map(|line| line.trim_start_matches('*').trim())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.emit_token(TokenKind::Comment(normalized));
+        Ok(())
     }
 
     fn handle_string(&mut self) -> Result<(), String> {

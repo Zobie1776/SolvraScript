@@ -7,5 +7,21 @@ members = [
   "nova_script",
   "nova_lite",
   "nova_ide/crates/*",
+  "nova_shell_v0.1.0",
+  "nova_shell_v0.1.0/crates/compositor",
+  "nova_shell_v0.1.0/crates/shell_launcher",
+  "nova_shell_v0.1.0/crates/shell_settings",
+  "nova_shell_v0.1.0/crates/theme_engine",
+  "nova_shell_v0.1.0/crates/plugin_sdk",
+  "nova_shell_v0.1.0/crates/plugin_host",
+  "nova_shell_v0.1.0/crates/utils",
+  "nova_shell_v0.1.0/crates/novactl",
 ]
 resolver = "2"
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.78"
+
+[workspace.lints.rust]
+warnings = "deny"

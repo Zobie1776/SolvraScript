@@ -19,12 +19,16 @@ pub enum Statement {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pipeline {
     commands: Vec<Command>,
+    background: bool,
 }
 
 impl Pipeline {
     /// Creates a new pipeline.
-    pub fn new(commands: Vec<Command>) -> Self {
-        Self { commands }
+    pub fn new(commands: Vec<Command>, background: bool) -> Self {
+        Self {
+            commands,
+            background,
+        }
     }
 
     /// Borrow commands in the pipeline.
@@ -40,6 +44,11 @@ impl Pipeline {
     /// Returns `true` when there are no commands.
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
+    }
+
+    /// Returns true when the pipeline should run in the background.
+    pub fn background(&self) -> bool {
+        self.background
     }
 }
 
@@ -143,18 +152,20 @@ pub enum RedirectionKind {
     Output,
     /// Redirect standard output appending to the provided file.
     Append,
+    /// Merge stderr into stdout (`2>&1`).
+    StderrToStdout,
 }
 
 /// A redirection definition for a command.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Redirection {
     kind: RedirectionKind,
-    target: Argument,
+    target: Option<Argument>,
 }
 
 impl Redirection {
     /// Create a redirection instance.
-    pub fn new(kind: RedirectionKind, target: Argument) -> Self {
+    pub fn new(kind: RedirectionKind, target: Option<Argument>) -> Self {
         Self { kind, target }
     }
 
@@ -164,7 +175,7 @@ impl Redirection {
     }
 
     /// Borrow the redirection target argument.
-    pub fn target(&self) -> &Argument {
-        &self.target
+    pub fn target(&self) -> Option<&Argument> {
+        self.target.as_ref()
     }
 }

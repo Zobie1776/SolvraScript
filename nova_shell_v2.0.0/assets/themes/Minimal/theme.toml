@@ -1,0 +1,20 @@
+[name]
+label = "Minimal"
+description = "Lite profile palette"
+
+[colors]
+surface = "#101215"
+overlay = "#1a1c1f"
+primary = "#6cb2ff"
+accent = "#93ffcb"
+danger = "#ff766b"
+warn = "#ffc04d"
+success = "#70ff8f"
+
+[typography]
+base_size = 13
+scale = 1.04
+
+[effects]
+shadow_blur = 8
+corner_radius = 6

@@ -1,0 +1,11 @@
+[Unit]
+Description=Nova Shell Compositor
+After=graphical.target
+
+[Service]
+ExecStart=/usr/local/bin/nova_compositor
+Restart=on-failure
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=graphical.target

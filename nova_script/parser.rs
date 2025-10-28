@@ -1,3 +1,17 @@
+//=============================================
+// nova_script/parser.rs
+//=============================================
+// Author: NovaOS Contributors
+// License: MIT (see LICENSE)
+// Goal: NovaScript recursive descent parser implementation
+// Objective: Transform token streams into AST nodes consumed by interpreter
+// Formatting: Zobie.format (.novaformat)
+//=============================================
+
+//=============================================
+//            Section 1: Crate Attributes & Imports
+//=============================================
+
 #![allow(dead_code)]
 
 use crate::ast::{
@@ -6,6 +20,13 @@ use crate::ast::{
     Visibility,
 };
 use crate::tokenizer::{Position, Token, TokenKind};
+
+//=============================================/*
+//  Collects AST type dependencies and tokenizer traits required for parsing.
+//============================================*/
+//=============================================
+//            Section 2: Parse Errors
+//=============================================
 
 /// Parser error types
 #[derive(Debug, Clone)]
@@ -59,17 +80,34 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+//=============================================/*
+//  Captures parser-facing diagnostics enriched with token position metadata.
+//============================================*/
+//=============================================
+//            Section 3: Parser State
+//=============================================
+
 /// Recursive descent parser for NovaScript
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
 }
 
+//=============================================/*
+//  Maintains parser state across token streams for NovaScript compilation.
+//============================================*/
 impl Parser {
+    //Function: new
+    //Purpose: Initialize parser with token stream and reset cursor
+    //Inputs: tokens: Vec<Token>
+    //Returns: Self
     pub fn new(tokens: Vec<Token>) -> Self {
         Self { tokens, current: 0 }
     }
 
+    //=============================================
+    //            Section 4: Token Navigation
+    //=============================================
     fn skip_layout_tokens(&mut self) {
         while matches!(
             &self.peek().kind,
@@ -79,7 +117,14 @@ impl Parser {
         }
     }
 
+    //=============================================
+    //            Section 5: Statement Parsing
+    //=============================================
     /// Parse a complete NovaScript program
+    //Function: parse
+    //Purpose: Consume tokens and produce a NovaScript program AST
+    //Inputs: &mut self
+    //Returns: Result<Program, ParseError>
     pub fn parse(&mut self) -> Result<Program, ParseError> {
         let position = self.current_position();
         let mut statements = Vec::new();
@@ -100,6 +145,20 @@ impl Parser {
         }
 
         Ok(Program::new(statements, position))
+    }
+
+    /// Parse a single expression and ensure the stream is fully consumed.
+    pub fn parse_expression_only(&mut self) -> Result<Expr, ParseError> {
+        let expression = self.parse_expression()?;
+        if !self.is_at_end() {
+            let token = self.peek();
+            return Err(ParseError::UnexpectedToken {
+                expected: "end of expression".into(),
+                found: token.kind.clone(),
+                position: token.position,
+            });
+        }
+        Ok(expression)
     }
 
     /// Parse a single statement
@@ -555,6 +614,13 @@ impl Parser {
 
         Ok(Stmt::Expression { expr, position })
     }
+
+    //=============================================/*
+    //  Handles NovaScript statements including declarations and control flow structures.
+    //============================================*/
+    //=============================================
+    //            Section 6: Expression Parsing
+    //=============================================
 
     /// Parse expression with precedence climbing
     fn parse_expression(&mut self) -> Result<Expr, ParseError> {
@@ -1223,6 +1289,9 @@ impl Parser {
         self.peek().position.clone()
     }
 
+    //=============================================/*
+    //  Wraps token navigation helpers for layout-sensitive NovaScript parsing.
+    //============================================*/
     // Utility: match binary operator and return BinaryOp
     fn match_binary_op(&mut self, kinds: &[TokenKind]) -> Option<BinaryOp> {
         for kind in kinds {
@@ -1264,6 +1333,13 @@ impl Parser {
         }
         None
     }
+
+    //=============================================/*
+    //  Implements precedence-based expression parsing and operator binding.
+    //============================================*/
+    //=============================================
+    //            Section 7: Type Parsing
+    //=============================================
 
     // Utility: parse type annotation (stub for now)
     fn parse_type(&mut self) -> Result<Type, ParseError> {
@@ -1318,4 +1394,14 @@ impl Parser {
             }),
         }
     }
+    //=============================================/*
+    //  Parses NovaScript type annotations and composite signatures.
+    //============================================*/
 } // End of Parser implementation
+
+//=============================================
+// End Of nova_script/parser.rs
+//=============================================
+// Notes:
+// -[@TODOS] Expand type parsing once generics and interfaces solidify.
+//=============================================
