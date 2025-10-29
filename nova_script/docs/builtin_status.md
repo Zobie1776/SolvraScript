@@ -24,6 +24,8 @@ This document captures the current state of NovaScript's built-in runtime librar
 | `http_get`, `http_post` | ✅ Implemented | Powered by the `ureq` HTTP client with JSON decoding. |
 | `env_get`, `env_set`, `exit` | ✅ Implemented | Environment and process control helpers. |
 | `on_event`, `trigger_event` | ✅ Implemented | In-process event bus invoking NovaScript callbacks. |
+| `core_module_execute`, `core_module_release`, `core_value_release` | ✅ Implemented | Bridge compiled NovaCore modules and managed object handles via the shared memory contract. |
+| `core_memory_stats` | ✅ Implemented | Exposes deterministic allocator usage (capacity, used bytes, allocation count). |
 
 ## Still under consideration
 

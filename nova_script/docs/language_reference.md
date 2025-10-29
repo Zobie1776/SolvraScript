@@ -46,6 +46,10 @@
 | `to_string(value)` | – | Stringifies using runtime display. |
 | `env_get(key)` / `env_set(key, value)` | – | Environment variable helpers. |
 | `http_get(url)` / `http_post(url, body, headers?)` | – | HTTP client helpers. |
+| `core_module_execute(handle, entry?)` | – | Executes a compiled NovaCore module linked via the import system. Optional entry selection is reserved for future expansion. |
+| `core_module_release(handle)` | – | Releases a compiled module handle from the shared NovaCore memory contract. |
+| `core_value_release(handle)` | – | Disposes opaque NovaCore values returned from modules. |
+| `core_memory_stats()` | – | Reports deterministic allocator metrics (`capacity_bytes`, `used_bytes`, `allocations`). |
 
 > **Spacing rule:** NovaScript no longer inserts implicit spaces during string concatenation or printing. Include literal spaces in strings (e.g. `"Hello " + name`) to control layout.
 

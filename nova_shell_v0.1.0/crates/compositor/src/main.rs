@@ -8,13 +8,13 @@
 //=============================================
 
 use anyhow::Result;
-use std::{thread, time::Duration];
 use nova_compositor::Compositor;
+use std::{thread, time::Duration};
 
 fn main() -> Result<()> {
     nova_compositor::init_tracing();
     let mut compositor = Compositor::build()?;
-    
+
     //Temp: keeps the compositor alive (60 FPS-ish) until calloop/smithay loop is in
     loop {
         compositor.tick();

@@ -1,4 +1,4 @@
-use nova_core::nvc::{self, Bytecode, Constant, Function, Instruction, Opcode};
+use nova_core::novac::{self, Bytecode, Constant, Function, Instruction, Opcode};
 
 #[test]
 fn assemble_and_roundtrip() {
@@ -30,13 +30,13 @@ end:
 .end
 "#;
 
-    let bytecode = nvc::assemble(source).expect("assembly should succeed");
+    let bytecode = novac::assemble(source).expect("assembly should succeed");
     let bytes = bytecode.encode().expect("encoding should succeed");
     let decoded = Bytecode::decode(&bytes).expect("decoding should succeed");
     assert_eq!(bytecode, decoded);
 
-    let assembly = nvc::disassemble(&decoded).expect("disassembly should succeed");
-    let reassembled = nvc::assemble(&assembly).expect("reassembly should succeed");
+    let assembly = novac::disassemble(&decoded).expect("disassembly should succeed");
+    let reassembled = novac::assemble(&assembly).expect("reassembly should succeed");
     assert_eq!(decoded, reassembled);
 
     assert_eq!(decoded.constants.len(), 3);
@@ -57,6 +57,6 @@ fn disassembly_labels_are_emitted() {
         )],
     );
 
-    let assembly = nvc::disassemble(&bytecode).expect("disassembly should succeed");
+    let assembly = novac::disassemble(&bytecode).expect("disassembly should succeed");
     assert!(assembly.contains("L1:"));
 }

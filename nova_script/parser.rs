@@ -155,7 +155,7 @@ impl Parser {
             return Err(ParseError::UnexpectedToken {
                 expected: "end of expression".into(),
                 found: token.kind.clone(),
-                position: token.position,
+                position: token.position.clone(),
             });
         }
         Ok(expression)

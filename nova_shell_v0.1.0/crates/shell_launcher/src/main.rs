@@ -1,9 +1,9 @@
 use anyhow::Result;
 use iced::application;
-use iced::widget::{button, column, container, row, scrollable, text, text_input, image, svg};
 use iced::widget::image::Handle as ImageHandle;
 use iced::widget::svg::Handle as SvgHandle;
 use iced::widget::text_input::Id as TextInputId;
+use iced::widget::{button, column, container, image, row, scrollable, svg, text, text_input};
 use iced::{Element, Settings, Task, Theme};
 
 #[derive(Clone, Debug)]
@@ -66,15 +66,9 @@ fn icon_el(a: &AppEntry) -> Element<'static, Message> {
     if let Some(path) = &a.icon {
         let p = std::path::Path::new(path);
         if p.extension().and_then(|s| s.to_str()) == Some("svg") {
-            svg(SvgHandle::from_path(p))
-                .width(24)
-                .height(24)
-                .into()
+            svg(SvgHandle::from_path(p)).width(24).height(24).into()
         } else if p.exists() {
-            image(ImageHandle::from_path(p))
-                .width(24)
-                .height(24)
-                .into()
+            image(ImageHandle::from_path(p)).width(24).height(24).into()
         } else {
             text("·").into()
         }
@@ -107,10 +101,15 @@ fn view(app: &LauncherApp) -> Element<'_, Message> {
     ]
     .spacing(8);
 
-    column![text("Nova Shell Launcher"), input, scrollable(list), controls]
-        .spacing(12)
-        .padding(12)
-        .into()
+    column![
+        text("Nova Shell Launcher"),
+        input,
+        scrollable(list),
+        controls
+    ]
+    .spacing(12)
+    .padding(12)
+    .into()
 }
 
 fn update(app: &mut LauncherApp, message: Message) -> Task<Message> {

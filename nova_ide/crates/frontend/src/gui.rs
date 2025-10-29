@@ -527,7 +527,7 @@ fn detect_language(path: &Path) -> String {
         "html" | "htm" => "html",
         "py" => "python",
         "ns" => "nova_script",
-        "novac" => "nova_core",
+        "nvc" => "nova_core",
         other => other,
     }
     .to_string()

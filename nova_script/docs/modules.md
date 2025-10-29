@@ -25,7 +25,7 @@ import "tools/format.ns" as fmt;
 4. **Evaluation** – The interpreter executes modules in isolated environments, capturing any new globals as the exported namespace.
 5. **Caching** – Exports are cached to avoid re-execution unless explicitly cleared.
 
-The loader detects cyclic imports and reports friendly diagnostics. Compiled `.nvc` modules are recorded for future NovaCore integration; at present they surface a “not yet supported” message during evaluation.
+The loader detects cyclic imports and reports friendly diagnostics. When a compiled `.nvc` artefact is discovered it is bound to a shared NovaCore runtime through the internal CoreBridge, exposing a stable `module.handle` plus helper builtins for execution and teardown.
 
 ### Standard Library Modules
 
@@ -65,12 +65,19 @@ println(math.square(9));
 
 ### Tooling & Build Support
 
-A helper script (`scripts/build_stdlib.sh`) demonstrates how to package standard modules into `.nvc` artifacts. Replace the placeholder copy step with the NovaCore compiler once available:
+A helper script (`scripts/build_stdlib.sh`) demonstrates how to package standard modules into `.nvc` artifacts. The interpreter recognises these artefacts automatically; the exported namespace now complements the script exports with a `module` metadata object while global builtins (`core_module_execute`, `core_module_release`, `core_value_release`) manage execution and lifecycle.
 
 ```bash
 ./scripts/build_stdlib.sh             # writes to target/stdlib
 ./scripts/build_stdlib.sh ./dist/lib  # custom output directory
 ```
+
+### NovaCore Integration
+
+- Execute a compiled module by calling `core_module_execute(module.module.handle)`. The return value mirrors NovaCore scalars directly; opaque runtime objects appear as handles that can later be freed with `core_value_release(handle)`.
+- Inspect the deterministic allocator that backs both runtimes via `core_memory_stats()`, which mirrors `MemoryContract::stats()` from NovaCore.
+- Dispose of compiled modules when no longer needed through `core_module_release(module.module.handle)` to reclaim deterministic heap space.
+- Queue asynchronous interpreter tasks with `core_bridge.execute_async(|| { /* ... */ })` (or higher-level helpers) and drive them to completion from the host by invoking `NovaRuntime::run_loop()`.
 
 ### Best Practices
 

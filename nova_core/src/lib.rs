@@ -40,6 +40,7 @@ use thiserror::Error;
 use tracing::instrument;
 
 use crate::bytecode::spec::DebugSymbol;
+use crate::concurrency::executor::{LoopState, TaskExecutor};
 use crate::integration::RuntimeHooks;
 use crate::module::{Module, ModuleLoader};
 use crate::sys::drivers::DriverRegistry;
@@ -275,6 +276,100 @@ impl FailSafeState {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct RuntimeBootstrap {
+    stack_bytes: usize,
+    heap_bytes: usize,
+    worker_count: Option<usize>,
+}
+
+impl RuntimeBootstrap {
+    pub fn deterministic() -> Self {
+        Self {
+            stack_bytes: 256 * 1024,
+            heap_bytes: 4 * 1024 * 1024,
+            worker_count: None,
+        }
+    }
+
+    pub fn with_stack_bytes(mut self, stack_bytes: usize) -> Self {
+        self.stack_bytes = stack_bytes.max(64 * 1024);
+        self
+    }
+
+    pub fn with_heap_bytes(mut self, heap_bytes: usize) -> Self {
+        self.heap_bytes = heap_bytes.max(1024 * 1024);
+        self
+    }
+
+    pub fn with_worker_count(mut self, workers: usize) -> Self {
+        self.worker_count = Some(workers.max(1));
+        self
+    }
+
+    pub fn build(self) -> RuntimeBootstrapState {
+        RuntimeBootstrapState::from_config(self)
+    }
+}
+
+#[derive(Debug)]
+pub struct RuntimeBootstrapState {
+    stack: Arc<StackReservation>,
+    memory: Arc<memory::MemoryContract>,
+    worker_count: usize,
+}
+
+impl RuntimeBootstrapState {
+    fn from_config(config: RuntimeBootstrap) -> Self {
+        let worker_count = config.worker_count.unwrap_or_else(default_worker_count);
+        Self {
+            stack: Arc::new(StackReservation::new(config.stack_bytes)),
+            memory: Arc::new(memory::MemoryContract::new(config.heap_bytes)),
+            worker_count,
+        }
+    }
+
+    pub fn stack_bytes(&self) -> usize {
+        self.stack.size()
+    }
+
+    pub fn memory_contract(&self) -> Arc<memory::MemoryContract> {
+        self.memory.clone()
+    }
+
+    pub fn worker_count(&self) -> usize {
+        self.worker_count
+    }
+
+    fn into_parts(self) -> (Arc<StackReservation>, Arc<memory::MemoryContract>, usize) {
+        (self.stack, self.memory, self.worker_count)
+    }
+}
+
+#[derive(Debug)]
+struct StackReservation {
+    guard: Vec<u8>,
+}
+
+impl StackReservation {
+    fn new(size: usize) -> Self {
+        let size = size.max(64 * 1024);
+        Self {
+            guard: vec![0; size],
+        }
+    }
+
+    fn size(&self) -> usize {
+        self.guard.len()
+    }
+}
+
+fn default_worker_count() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+}
+
 /// NovaRuntime orchestrates backend selection, execution, and provides fail-safe gating.
 #[derive(Debug, Clone)]
 pub struct NovaRuntime {
@@ -283,6 +378,9 @@ pub struct NovaRuntime {
     modules: Arc<RwLock<ModuleLoader>>,
     hooks: Arc<RuntimeHooks>,
     hal: DebugHal,
+    stack: Arc<StackReservation>,
+    memory: Arc<memory::MemoryContract>,
+    executor: TaskExecutor,
 }
 
 impl Default for NovaRuntime {
@@ -294,17 +392,32 @@ impl Default for NovaRuntime {
 impl NovaRuntime {
     /// Creates a new runtime with default configuration.
     pub fn new() -> Self {
+        Self::from_bootstrap(RuntimeBootstrap::deterministic().build())
+    }
+
+    /// Returns a bootstrap builder for constructing deterministic runtime instances.
+    pub fn bootstrap() -> RuntimeBootstrap {
+        RuntimeBootstrap::deterministic()
+    }
+
+    /// Constructs the runtime from an explicit bootstrap state.
+    pub fn from_bootstrap(state: RuntimeBootstrapState) -> Self {
+        let (stack, memory, worker_count) = state.into_parts();
         let hooks = Arc::new(RuntimeHooks::default());
         let target = backend::active_target();
         let hal_impl = SoftwareHal::new(target, hooks.clone());
         let _ = hal_impl.register_builtin_devices();
         let hal = Arc::new(hal_impl) as Arc<dyn HardwareAbstractionLayer>;
+        let executor = TaskExecutor::new(worker_count);
         Self {
             config: RuntimeConfig::default(),
             failsafe: Arc::new(FailSafeState::default()),
             modules: Arc::new(RwLock::new(ModuleLoader::new())),
             hooks,
             hal: DebugHal::new(hal),
+            stack,
+            memory,
+            executor,
         }
     }
 
@@ -389,6 +502,39 @@ impl NovaRuntime {
     pub fn driver_registry(&self) -> DriverRegistry {
         self.hal.driver_registry()
     }
+
+    /// Returns the deterministic stack reservation (in bytes) used by the runtime.
+    pub fn stack_bytes(&self) -> usize {
+        self.stack.size()
+    }
+
+    /// Returns the shared memory contract used for manual allocations.
+    pub fn memory_contract(&self) -> Arc<memory::MemoryContract> {
+        self.memory.clone()
+    }
+
+    /// Returns a task executor backed by the runtime's work-stealing scheduler.
+    pub fn executor(&self) -> TaskExecutor {
+        self.executor.clone()
+    }
+
+    /// Runs the unified runtime loop until all scheduled tasks have completed.
+    pub fn run_loop(&self) -> NovaResult<()> {
+        loop {
+            if self.executor.poll_once() == LoopState::Idle {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Executes a module that has already been loaded into the runtime.
+    pub fn execute_module(&self, module: Arc<Module>) -> NovaResult<Value> {
+        self.failsafe.ensure_unlocked()?;
+        let backend = backend::active_backend();
+        let artifact = backend.compile(module.bytecode())?;
+        backend.execute(artifact, self.config.clone(), self.modules.clone())
+    }
 }
 
 #[cfg(test)]
@@ -434,5 +580,40 @@ mod tests {
         let runtime = NovaRuntime::new();
         let backend = runtime.backend();
         assert_eq!(backend.name(), runtime.target_arch().as_str());
+    }
+
+    #[test]
+    fn exposes_memory_contract() {
+        let runtime = NovaRuntime::new();
+        let stats = runtime.memory_contract().stats();
+        assert_eq!(stats.used_bytes, 0);
+        assert!(stats.capacity_bytes >= 1024 * 1024);
+    }
+
+    #[test]
+    fn executor_runs_jobs() {
+        let runtime = NovaRuntime::new();
+        let executor = runtime.executor();
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let done = flag.clone();
+        let handle = executor.spawn(move || {
+            done.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        handle.wait();
+        assert!(flag.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn run_loop_returns_when_idle() {
+        let runtime = NovaRuntime::new();
+        runtime.run_loop().expect("loop finishes immediately");
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let done = flag.clone();
+        runtime.executor().spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            done.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        runtime.run_loop().expect("loop drains pending tasks");
+        assert!(flag.load(std::sync::atomic::Ordering::SeqCst));
     }
 }

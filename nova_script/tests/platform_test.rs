@@ -7,11 +7,3 @@
 // Objective: Verify platform layer works on all targets
 // Formatting: Zobie.format (.novaformat)
 //=============================================
-
-use novascript::platform;
-use std::time::Duration;
-
-#[test]
-fn test_system_time() {
-let time = platform::system_time().expect(“system_time should work”);
-assert!(

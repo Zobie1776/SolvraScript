@@ -9,15 +9,16 @@
 //=============================================
 
 mod ast;
+mod core_bridge;
 mod interpreter;
 mod modules;
 mod parser;
 mod tokenizer;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use ast::{Program, Stmt};
 use clap::Parser as ClapParser;
-use interpreter::{value_to_json, Interpreter, RuntimeError, Value};
+use interpreter::{Interpreter, RuntimeError, Value, value_to_json};
 use parser::{ParseError, Parser};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -177,7 +178,10 @@ fn map_parse_error(path: &Path, error: ParseError) -> anyhow::Error {
 }
 
 fn print_ir(program: &Program) {
-    println!("; NovaScript pseudo-IR ({} statements)", program.statements.len());
+    println!(
+        "; NovaScript pseudo-IR ({} statements)",
+        program.statements.len()
+    );
     for (index, statement) in program.statements.iter().enumerate() {
         println!("{:04} | {}", index, describe_statement(statement));
     }

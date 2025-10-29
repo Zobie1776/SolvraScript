@@ -133,7 +133,7 @@ impl<A: NovaAiAdapter> NovaAiService<A> {
     pub fn supports_file(&self, path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
-            .map(|ext| matches!(ext, "ns" | "novac" | "rs" | "py" | "js" | "ts"))
+            .map(|ext| matches!(ext, "ns" | "nvc" | "rs" | "py" | "js" | "ts"))
             .unwrap_or(false)
     }
 }

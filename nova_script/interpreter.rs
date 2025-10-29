@@ -15,6 +15,7 @@
 #![allow(dead_code)]
 
 use crate::ast::*;
+use crate::core_bridge::{CoreBridge, ModuleRegistration};
 use crate::modules::{ModuleArtifact, ModuleDescriptor, ModuleError, ModuleLoader};
 // time and home-dir resolved via `crate::platform` abstraction
 use rand::Rng;
@@ -27,19 +28,18 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 // process spawning and execution moved to `crate::platform` abstraction
+use crate::platform::{self, CommandResult, CommandSpec, StdioMode};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use ureq::Agent;
-use crate::platform::{self, CommandSpec, CommandResult, StdioMode};
 
-use nova_core::backend;
-use nova_core::integration::RuntimeHooks as NovaRuntimeHooks;
+use nova_core::memory::{MemoryHandle, MemoryStats};
 use nova_core::sys::hal::{
-    DeviceCapability, DeviceInfo, DeviceKind, HardwareAbstractionLayer, SensorKind, SoftwareHal,
-    StorageBus,
+    DeviceCapability, DeviceInfo, DeviceKind, HardwareAbstractionLayer, SensorKind, StorageBus,
 };
+use nova_core::Value as CoreValue;
 
 //=============================================/*
 //  Collects crate attributes and imports required by the NovaScript interpreter runtime.
@@ -357,6 +357,15 @@ type Environment = HashMap<String, VariableEntry>;
 
 enum Resource {
     File(File),
+    CoreModule {
+        memory: MemoryHandle,
+        path: PathBuf,
+        name: String,
+    },
+    CoreValue {
+        memory: MemoryHandle,
+        type_name: &'static str,
+    },
 }
 
 type SharedModuleLoader = Rc<RefCell<ModuleLoader>>;
@@ -372,6 +381,7 @@ pub struct Interpreter {
     http_agent: Agent,
     module_loader: SharedModuleLoader,
     module_path_stack: Vec<PathBuf>,
+    core: Arc<CoreBridge>,
     hal: Arc<dyn HardwareAbstractionLayer>,
     dry_run: bool,
 }
@@ -390,18 +400,16 @@ impl Interpreter {
     //Returns: Self
     pub fn new() -> Self {
         let loader = Rc::new(RefCell::new(ModuleLoader::new()));
-        let hooks = Arc::new(NovaRuntimeHooks::default());
-        let hal_impl = SoftwareHal::new(backend::active_target(), hooks);
-        let _ = hal_impl.register_builtin_devices();
-        let hal: Arc<dyn HardwareAbstractionLayer> = Arc::new(hal_impl);
-        Self::with_loader(loader, hal)
+        let core = Arc::new(CoreBridge::new());
+        Self::with_loader(loader, core)
     }
 
     //Function: with_loader
     //Purpose: Build interpreter with injected module loader and HAL implementation
     //Inputs: loader: SharedModuleLoader, hal: Arc<dyn HardwareAbstractionLayer>
     //Returns: Self
-    pub fn with_loader(loader: SharedModuleLoader, hal: Arc<dyn HardwareAbstractionLayer>) -> Self {
+    pub fn with_loader(loader: SharedModuleLoader, core: Arc<CoreBridge>) -> Self {
+        let hal = core.hal();
         let mut interpreter = Self {
             globals: HashMap::new(),
             locals: Vec::new(),
@@ -413,6 +421,7 @@ impl Interpreter {
             http_agent: Agent::new(),
             module_loader: loader,
             module_path_stack: Vec::new(),
+            core,
             hal,
             dry_run: false,
         };
@@ -609,11 +618,7 @@ impl Interpreter {
             NativeArity::Exact(1),
             Interpreter::builtin_fs_exists,
         );
-        self.register_builtin(
-            "fs_ls",
-            NativeArity::Exact(1),
-            Interpreter::builtin_fs_ls,
-        );
+        self.register_builtin("fs_ls", NativeArity::Exact(1), Interpreter::builtin_fs_ls);
         self.register_builtin(
             "close_file",
             NativeArity::Exact(1),
@@ -674,6 +679,29 @@ impl Interpreter {
             "io_stderr_writeln",
             NativeArity::Exact(1),
             Interpreter::builtin_io_stderr_writeln,
+        );
+        self.register_builtin(
+            "core_module_execute",
+            NativeArity::Range {
+                min: 1,
+                max: Some(2),
+            },
+            Interpreter::builtin_core_module_execute,
+        );
+        self.register_builtin(
+            "core_module_release",
+            NativeArity::Exact(1),
+            Interpreter::builtin_core_module_release,
+        );
+        self.register_builtin(
+            "core_value_release",
+            NativeArity::Exact(1),
+            Interpreter::builtin_core_value_release,
+        );
+        self.register_builtin(
+            "core_memory_stats",
+            NativeArity::Exact(0),
+            Interpreter::builtin_core_memory_stats,
         );
     }
 
@@ -796,9 +824,8 @@ impl Interpreter {
 
     fn builtin_input(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
         let prompt = args.first().map(|v| v.to_string());
-        let line = platform::read_line(prompt.as_deref()).map_err(|e| {
-            RuntimeError::IoError(e.to_string())
-        })?;
+        let line = platform::read_line(prompt.as_deref())
+            .map_err(|e| RuntimeError::IoError(e.to_string()))?;
         Ok(Value::String(line))
     }
 
@@ -916,7 +943,13 @@ impl Interpreter {
         let ts = platform::system_timestamp().map_err(|e| RuntimeError::Custom(e.to_string()))?;
         let mut map = HashMap::new();
         // iso and timestamp are best-effort; construct iso from fields
-        map.insert("iso".to_string(), Value::String(format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:09}Z", ts.year, ts.month, ts.day, ts.hour, ts.minute, ts.second, ts.nanosecond)));
+        map.insert(
+            "iso".to_string(),
+            Value::String(format!(
+                "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:09}Z",
+                ts.year, ts.month, ts.day, ts.hour, ts.minute, ts.second, ts.nanosecond
+            )),
+        );
         map.insert("timestamp".to_string(), Value::Float(0.0));
         map.insert("year".to_string(), Value::Int(ts.year as i64));
         map.insert("month".to_string(), Value::Int(ts.month as i64));
@@ -1262,7 +1295,7 @@ impl Interpreter {
         match &descriptor.artifact {
             ModuleArtifact::Script { program, path } => {
                 let loader = self.module_loader.clone();
-                let mut module_interpreter = Interpreter::with_loader(loader, self.hal.clone());
+                let mut module_interpreter = Interpreter::with_loader(loader, self.core.clone());
                 let baseline = module_interpreter.globals_snapshot();
                 let origin: PathBuf = path.clone();
                 let _ =
@@ -1275,11 +1308,56 @@ impl Interpreter {
                     .collect::<HashMap<_, _>>();
                 Ok(exports)
             }
-            ModuleArtifact::Compiled { path, .. } => Err(RuntimeError::Custom(format!(
-                "Compiled module '{}' is not yet supported",
-                path.display()
-            ))),
+            ModuleArtifact::Compiled { path, .. } => {
+                let registration = self
+                    .core
+                    .load_compiled_module(path)
+                    .map_err(|err| RuntimeError::Custom(err.to_string()))?;
+                Ok(self.build_compiled_module_exports(registration))
+            }
         }
+    }
+
+    fn build_compiled_module_exports(
+        &mut self,
+        registration: ModuleRegistration,
+    ) -> HashMap<String, Value> {
+        let handle_value = self.allocate_handle(Resource::CoreModule {
+            memory: registration.memory,
+            path: registration.path.clone(),
+            name: registration.name.clone(),
+        });
+
+        let mut module_info = HashMap::new();
+        module_info.insert("handle".into(), handle_value.clone());
+        module_info.insert("name".into(), Value::String(registration.name));
+        module_info.insert(
+            "path".into(),
+            Value::String(registration.path.to_string_lossy().into_owned()),
+        );
+
+        let mut exports = HashMap::new();
+        exports.insert("module".into(), Value::Object(module_info));
+        exports.insert(
+            "execute".into(),
+            Value::NativeFunction {
+                name: "core_module_execute".into(),
+                arity: NativeArity::Range {
+                    min: 1,
+                    max: Some(2),
+                },
+                func: Interpreter::builtin_core_module_execute,
+            },
+        );
+        exports.insert(
+            "release".into(),
+            Value::NativeFunction {
+                name: "core_module_release".into(),
+                arity: NativeArity::Exact(1),
+                func: Interpreter::builtin_core_module_release,
+            },
+        );
+        exports
     }
 
     fn bind_imports(
@@ -1733,12 +1811,9 @@ impl Interpreter {
             RuntimeError::ArgumentError("process_run expects a command object".into())
         })?;
         let spec = expect_object(spec, "process_run spec")?;
-        let program = spec
-            .get("program")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                RuntimeError::ArgumentError("process_run.program must be a string".into())
-            })?;
+        let program = spec.get("program").and_then(Value::as_str).ok_or_else(|| {
+            RuntimeError::ArgumentError("process_run.program must be a string".into())
+        })?;
         // Build a platform CommandSpec and execute via platform abstraction
         let mut cmd = CommandSpec {
             program: program.to_string(),
@@ -1790,7 +1865,8 @@ impl Interpreter {
             return Ok(Value::Object(process_status_map(true, Some(0), "", "")));
         }
 
-        let result: CommandResult = platform::execute_command(&cmd).map_err(|e| RuntimeError::Custom(e.to_string()))?;
+        let result: CommandResult =
+            platform::execute_command(&cmd).map_err(|e| RuntimeError::Custom(e.to_string()))?;
         if matches!(spec.get("check"), Some(Value::Bool(true))) && !result.success {
             return Err(RuntimeError::Custom(format!(
                 "process_run: command '{program}' failed (code {:?})",
@@ -1811,12 +1887,9 @@ impl Interpreter {
             RuntimeError::ArgumentError("process_spawn expects a command object".into())
         })?;
         let spec = expect_object(spec, "process_spawn spec")?;
-        let program = spec
-            .get("program")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                RuntimeError::ArgumentError("process_spawn.program must be a string".into())
-            })?;
+        let program = spec.get("program").and_then(Value::as_str).ok_or_else(|| {
+            RuntimeError::ArgumentError("process_spawn.program must be a string".into())
+        })?;
         if self.dry_run {
             let mut map = HashMap::new();
             map.insert("ok".to_string(), Value::Bool(true));
@@ -1892,6 +1965,63 @@ impl Interpreter {
         Ok(Value::Object(map))
     }
 
+    fn builtin_open_file(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| RuntimeError::TypeError("open_file expects string path".into()))?;
+        let mode = args.get(1).and_then(Value::as_str).unwrap_or("r");
+
+        let mut options = OpenOptions::new();
+        match mode {
+            "r" => {
+                options.read(true);
+            }
+            "w" => {
+                options.write(true).create(true).truncate(true);
+            }
+            "a" => {
+                options.append(true).create(true);
+            }
+            "rw" => {
+                options.read(true).write(true).create(true);
+            }
+            other => {
+                return Err(RuntimeError::ArgumentError(format!(
+                    "Unsupported open_file mode '{}'. Expected r, w, a, or rw",
+                    other
+                )));
+            }
+        }
+
+        let file = options
+            .open(path)
+            .map_err(|err| RuntimeError::IoError(err.to_string()))?;
+        Ok(self.allocate_handle(Resource::File(file)))
+    }
+
+    fn builtin_read_file(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        match &args[0] {
+            Value::String(path) => {
+                let contents = platform::read_file(path)
+                    .map_err(|err| RuntimeError::IoError(err.to_string()))?;
+                Ok(Value::String(contents))
+            }
+            Value::Handle(id) => {
+                let file = self.get_file_mut(*id)?;
+                file.seek(SeekFrom::Start(0))
+                    .map_err(|err| RuntimeError::IoError(err.to_string()))?;
+                let mut buffer = String::new();
+                file.read_to_string(&mut buffer)
+                    .map_err(|err| RuntimeError::IoError(err.to_string()))?;
+                Ok(Value::String(buffer))
+            }
+            other => Err(RuntimeError::TypeError(format!(
+                "read_file expects path or handle, got {}",
+                other.type_name()
+            ))),
+        }
+    }
+
     fn builtin_write_file(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
         let content = args[1].to_string();
         if let Value::String(path) = &args[0] {
@@ -1900,9 +2030,11 @@ impl Interpreter {
                 .map(|v| matches!(v, Value::Bool(true)))
                 .unwrap_or(false);
             if append {
-                platform::append_file(path, &content).map_err(|e| RuntimeError::IoError(e.to_string()))?;
+                platform::append_file(path, &content)
+                    .map_err(|e| RuntimeError::IoError(e.to_string()))?;
             } else {
-                platform::write_file(path, &content).map_err(|e| RuntimeError::IoError(e.to_string()))?;
+                platform::write_file(path, &content)
+                    .map_err(|e| RuntimeError::IoError(e.to_string()))?;
             }
             Ok(Value::Null)
         } else if let Value::Handle(id) = &args[0] {
@@ -1928,6 +2060,79 @@ impl Interpreter {
         Ok(Value::Null)
     }
 
+    fn builtin_core_module_execute(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let id = expect_handle_id(&args[0])?;
+        if let Some(entry) = args.get(1) {
+            if let Value::String(_) | Value::Null = entry {
+                if !matches!(entry, Value::Null) {
+                    return Err(RuntimeError::NotImplemented(
+                        "Selecting custom NovaCore entry points is not yet supported".into(),
+                    ));
+                }
+            } else {
+                return Err(RuntimeError::TypeError(
+                    "core_module_execute optional entry must be string or null".into(),
+                ));
+            }
+        }
+        let memory = self.core_module_handle(id)?;
+        let result = self
+            .core
+            .execute_module(memory)
+            .map_err(|err| RuntimeError::Custom(err.to_string()))?;
+        self.convert_core_value(result)
+    }
+
+    fn builtin_core_module_release(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let id = expect_handle_id(&args[0])?;
+        match self.resources.remove(&id) {
+            Some(Resource::CoreModule { memory, .. }) => {
+                if !self.core.release(memory) {
+                    return Err(RuntimeError::Custom(format!(
+                        "Failed to release NovaCore module handle {}",
+                        id
+                    )));
+                }
+                Ok(Value::Null)
+            }
+            Some(_) => Err(RuntimeError::TypeError(format!(
+                "Handle {} does not reference a NovaCore module",
+                id
+            ))),
+            None => Err(RuntimeError::ArgumentError(format!(
+                "Unknown module handle {}",
+                id
+            ))),
+        }
+    }
+
+    fn builtin_core_value_release(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let id = expect_handle_id(&args[0])?;
+        match self.resources.remove(&id) {
+            Some(Resource::CoreValue { memory, .. }) => {
+                if !self.core.release(memory) {
+                    return Err(RuntimeError::Custom(format!(
+                        "Failed to release NovaCore allocation handle {}",
+                        id
+                    )));
+                }
+                Ok(Value::Null)
+            }
+            Some(_) => Err(RuntimeError::TypeError(format!(
+                "Handle {} is not a NovaCore allocation",
+                id
+            ))),
+            None => Err(RuntimeError::ArgumentError(format!(
+                "Unknown handle {}",
+                id
+            ))),
+        }
+    }
+
+    fn builtin_core_memory_stats(&mut self, _args: &[Value]) -> Result<Value, RuntimeError> {
+        Ok(Self::memory_stats_value(self.core.memory_stats()))
+    }
+
     fn builtin_fs_exists(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
         let path = args[0]
             .as_str()
@@ -1940,7 +2145,8 @@ impl Interpreter {
             .as_str()
             .ok_or_else(|| RuntimeError::TypeError("fs_ls expects string path".into()))?;
         let mut entries = Vec::new();
-        let list = platform::list_directory(path).map_err(|e| RuntimeError::IoError(e.to_string()))?;
+        let list =
+            platform::list_directory(path).map_err(|e| RuntimeError::IoError(e.to_string()))?;
         for name in list {
             entries.push(Value::String(name));
         }
@@ -2026,9 +2232,8 @@ impl Interpreter {
         let text = args[0]
             .as_str()
             .ok_or_else(|| RuntimeError::TypeError("json_parse expects string input".into()))?;
-        let parsed: JsonValue = serde_json::from_str(text).map_err(|err| {
-            RuntimeError::ArgumentError(format!("json_parse failed: {}", err))
-        })?;
+        let parsed: JsonValue = serde_json::from_str(text)
+            .map_err(|err| RuntimeError::ArgumentError(format!("json_parse failed: {}", err)))?;
         Ok(json_to_value(&parsed))
     }
 
@@ -2051,12 +2256,14 @@ impl Interpreter {
     }
 
     fn builtin_io_stdout_writeln(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        platform::println(&args[0].to_string()).map_err(|e| RuntimeError::IoError(e.to_string()))?;
+        platform::println(&args[0].to_string())
+            .map_err(|e| RuntimeError::IoError(e.to_string()))?;
         Ok(Value::Null)
     }
 
     fn builtin_io_stderr_writeln(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
-        platform::eprintln(&args[0].to_string()).map_err(|e| RuntimeError::IoError(e.to_string()))?;
+        platform::eprintln(&args[0].to_string())
+            .map_err(|e| RuntimeError::IoError(e.to_string()))?;
         Ok(Value::Null)
     }
 
@@ -2070,11 +2277,69 @@ impl Interpreter {
     fn get_file_mut(&mut self, id: u64) -> Result<&mut File, RuntimeError> {
         match self.resources.get_mut(&id) {
             Some(Resource::File(file)) => Ok(file),
+            Some(_) => Err(RuntimeError::ArgumentError(format!(
+                "Handle {} is not a file",
+                id
+            ))),
             None => Err(RuntimeError::ArgumentError(format!(
                 "Unknown file handle {}",
                 id
             ))),
         }
+    }
+
+    fn core_module_handle(&self, id: u64) -> Result<MemoryHandle, RuntimeError> {
+        match self.resources.get(&id) {
+            Some(Resource::CoreModule { memory, .. }) => Ok(*memory),
+            Some(_) => Err(RuntimeError::ArgumentError(format!(
+                "Handle {} is not a NovaCore module",
+                id
+            ))),
+            None => Err(RuntimeError::ArgumentError(format!(
+                "Unknown module handle {}",
+                id
+            ))),
+        }
+    }
+
+    fn convert_core_value(&mut self, value: CoreValue) -> Result<Value, RuntimeError> {
+        match value {
+            CoreValue::Null => Ok(Value::Null),
+            CoreValue::Boolean(b) => Ok(Value::Bool(b)),
+            CoreValue::Integer(i) => Ok(Value::Int(i)),
+            CoreValue::Float(f) => Ok(Value::Float(f)),
+            CoreValue::String(s) => Ok(Value::String(s)),
+            CoreValue::Object(_) => self.wrap_core_allocation(value, "nova_object"),
+        }
+    }
+
+    fn wrap_core_allocation(
+        &mut self,
+        value: CoreValue,
+        type_name: &'static str,
+    ) -> Result<Value, RuntimeError> {
+        let handle = self
+            .core
+            .allocate_value(value)
+            .map_err(|err| RuntimeError::Custom(format!("NovaCore allocation failed: {}", err)))?;
+        Ok(self.allocate_handle(Resource::CoreValue {
+            memory: handle,
+            type_name,
+        }))
+    }
+
+    fn memory_stats_value(stats: MemoryStats) -> Value {
+        let mut map = HashMap::new();
+        map.insert(
+            "capacity_bytes".into(),
+            Value::Int(stats.capacity_bytes as i64),
+        );
+        map.insert("used_bytes".into(), Value::Int(stats.used_bytes as i64));
+        map.insert(
+            "allocations".into(),
+            Value::Int(stats.allocation_count as i64),
+        );
+        Value::Object(map)
     }
 
     fn eval_string_template(&mut self, parts: &[StringPart]) -> Result<Value, RuntimeError> {
@@ -2428,6 +2693,24 @@ impl Interpreter {
 impl Default for Interpreter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for Interpreter {
+    fn drop(&mut self) {
+        let handles: Vec<MemoryHandle> = self
+            .resources
+            .values()
+            .filter_map(|resource| match resource {
+                Resource::CoreModule { memory, .. } | Resource::CoreValue { memory, .. } => {
+                    Some(*memory)
+                }
+                _ => None,
+            })
+            .collect();
+        for handle in handles {
+            let _ = self.core.release(handle);
+        }
     }
 }
 

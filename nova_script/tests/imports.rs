@@ -38,3 +38,13 @@ fn import_script_module_executes() {
     let result = eval_source(source);
     assert_eq!(result, Value::Int(42));
 }
+
+#[test]
+fn core_memory_stats_builtin_exposes_contract() {
+    let source = r#"
+        let stats = core_memory_stats();
+        stats.used_bytes == 0 && stats.capacity_bytes > 0 && stats.allocations == 0
+    "#;
+    let result = eval_source(source);
+    assert_eq!(result, Value::Bool(true));
+}

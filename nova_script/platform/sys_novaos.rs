@@ -3,47 +3,34 @@
 //=============================================
 // Author: NovaOS Contributors
 // License: MIT (see LICENSE)
-// Goal: NovaOS-native platform implementation
-// Objective: Direct NovaOS syscall integration
+// Goal: Fallback implementation for non-mainstream targets
+// Objective: Provide baseline functionality while NovaOS syscalls mature
 // Formatting: Zobie.format (.novaformat)
 //=============================================
 
 use super::{
-CommandResult, CommandSpec, PlatformError, PlatformOps, PlatformResult, StdioMode,
-SystemTimestamp,
+    CommandResult, CommandSpec, PlatformError, PlatformOps, PlatformResult, StdioMode,
+    SystemTimestamp,
 };
-use std::time::Duration;
+use chrono::{Datelike, Timelike, Utc};
+use std::fs::{self, OpenOptions};
+use std::io::{self, BufRead, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct NovaOSPlatform;
 
 impl PlatformOps for NovaOSPlatform {
-fn system_time() -> PlatformResult<f64> {
-// TODO: Replace with NovaOS syscall once available
-// For now, fallback to standard implementation
-#[cfg(feature = “std”)]
-{
-use std::time::{SystemTime, UNIX_EPOCH};
-let now = SystemTime::now();
-let duration = now
-.duration_since(UNIX_EPOCH)
-.map_err(|e| PlatformError::IoError(e.to_string()))?;
-Ok(duration.as_secs_f64())
-}
-#[cfg(not(feature = “std”))]
-{
-// NovaOS native syscall: syscall(SYS_TIME, 0)
-Err(PlatformError::NotSupported(
-“NovaOS time syscall not yet implemented”.to_string(),
-))
-}
-}
+    fn system_time() -> PlatformResult<f64> {
+        let now = SystemTime::now();
+        let duration = now
+            .duration_since(UNIX_EPOCH)
+            .map_err(|err| PlatformError::IoError(err.to_string()))?;
+        Ok(duration.as_secs_f64())
+    }
 
-```
-fn system_timestamp() -> PlatformResult<SystemTimestamp> {
-    // TODO: Replace with NovaOS syscall for structured time
-    #[cfg(feature = "std")]
-    {
-        use chrono::{Datelike, Timelike, Utc};
+    fn system_timestamp() -> PlatformResult<SystemTimestamp> {
         let now = Utc::now();
         Ok(SystemTimestamp {
             year: now.year(),
@@ -55,88 +42,27 @@ fn system_timestamp() -> PlatformResult<SystemTimestamp> {
             nanosecond: now.nanosecond(),
         })
     }
-    #[cfg(not(feature = "std"))]
-    {
-        Err(PlatformError::NotSupported(
-            "NovaOS timestamp syscall not yet implemented".to_string(),
-        ))
-    }
-}
 
-fn read_file(path: &str) -> PlatformResult<String> {
-    // TODO: Replace with NovaOS VFS syscall
-    #[cfg(feature = "std")]
-    {
-        use std::fs;
+    fn read_file(path: &str) -> PlatformResult<String> {
         fs::read_to_string(path).map_err(PlatformError::from)
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = path;
-        Err(PlatformError::NotSupported(
-            "NovaOS file read syscall not yet implemented".to_string(),
-        ))
-    }
-}
 
-fn write_file(path: &str, data: &str) -> PlatformResult<()> {
-    // TODO: Replace with NovaOS VFS syscall
-    #[cfg(feature = "std")]
-    {
-        use std::fs;
+    fn write_file(path: &str, data: &str) -> PlatformResult<()> {
         fs::write(path, data).map_err(PlatformError::from)
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = (path, data);
-        Err(PlatformError::NotSupported(
-            "NovaOS file write syscall not yet implemented".to_string(),
-        ))
-    }
-}
 
-fn append_file(path: &str, data: &str) -> PlatformResult<()> {
-    // TODO: Replace with NovaOS VFS syscall
-    #[cfg(feature = "std")]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        let mut file = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(path)?;
+    fn append_file(path: &str, data: &str) -> PlatformResult<()> {
+        let mut file = OpenOptions::new().append(true).create(true).open(path)?;
         file.write_all(data.as_bytes())?;
         file.flush()?;
         Ok(())
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = (path, data);
-        Err(PlatformError::NotSupported(
-            "NovaOS file append syscall not yet implemented".to_string(),
-        ))
-    }
-}
 
-fn path_exists(path: &str) -> bool {
-    // TODO: Replace with NovaOS VFS syscall
-    #[cfg(feature = "std")]
-    {
-        use std::path::Path;
+    fn path_exists(path: &str) -> bool {
         Path::new(path).exists()
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = path;
-        false
-    }
-}
 
-fn list_directory(path: &str) -> PlatformResult<Vec<String>> {
-    // TODO: Replace with NovaOS VFS syscall
-    #[cfg(feature = "std")]
-    {
-        use std::fs;
+    fn list_directory(path: &str) -> PlatformResult<Vec<String>> {
         let mut entries = Vec::new();
         for entry in fs::read_dir(path)? {
             let entry = entry?;
@@ -146,152 +72,59 @@ fn list_directory(path: &str) -> PlatformResult<Vec<String>> {
         }
         Ok(entries)
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = path;
-        Err(PlatformError::NotSupported(
-            "NovaOS directory listing syscall not yet implemented".to_string(),
-        ))
-    }
-}
 
-fn env_get(key: &str) -> Option<String> {
-    // TODO: Replace with NovaOS environment syscall
-    #[cfg(feature = "std")]
-    {
+    fn env_get(key: &str) -> Option<String> {
         std::env::var(key).ok()
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = key;
-        None
-    }
-}
 
-unsafe fn env_set(key: &str, value: &str) {
-    // TODO: Replace with NovaOS environment syscall
-    #[cfg(feature = "std")]
-    {
-        std::env::set_var(key, value);
+    unsafe fn env_set(key: &str, value: &str) {
+        unsafe { std::env::set_var(key, value) };
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = (key, value);
-    }
-}
 
-fn home_dir() -> Option<String> {
-    // TODO: Replace with NovaOS user info syscall
-    #[cfg(feature = "std")]
-    {
+    fn home_dir() -> Option<String> {
         dirs::home_dir().map(|p| p.to_string_lossy().to_string())
     }
-    #[cfg(not(feature = "std"))]
-    {
-        None
+
+    fn path_join(left: &str, right: &str) -> String {
+        PathBuf::from(left)
+            .join(right)
+            .to_string_lossy()
+            .to_string()
     }
-}
 
-fn path_join(left: &str, right: &str) -> String {
-    // NovaOS uses forward slashes for paths
-    format!("{}/{}", left.trim_end_matches('/'), right.trim_start_matches('/'))
-}
-
-fn canonicalize_path(path: &str) -> PlatformResult<String> {
-    // TODO: Replace with NovaOS VFS canonicalization
-    #[cfg(feature = "std")]
-    {
-        use std::fs;
+    fn canonicalize_path(path: &str) -> PlatformResult<String> {
         fs::canonicalize(path)
             .map(|p| p.to_string_lossy().to_string())
             .map_err(PlatformError::from)
     }
-    #[cfg(not(feature = "std"))]
-    {
-        // Simple path normalization for NovaOS
-        Ok(path.to_string())
-    }
-}
 
-fn sleep(duration: Duration) {
-    // TODO: Replace with NovaOS sleep syscall
-    #[cfg(feature = "std")]
-    {
+    fn sleep(duration: Duration) {
         std::thread::sleep(duration);
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = duration;
-        // NovaOS syscall: syscall(SYS_SLEEP, duration_ms)
-    }
-}
 
-fn print(text: &str) -> PlatformResult<()> {
-    // TODO: Replace with NovaOS console syscall
-    #[cfg(feature = "std")]
-    {
-        print!("{}", text);
-        Ok(())
-    }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = text;
-        // NovaOS syscall: syscall(SYS_WRITE, STDOUT, text.as_ptr(), text.len())
-        Ok(())
-    }
-}
-
-fn println(text: &str) -> PlatformResult<()> {
-    // TODO: Replace with NovaOS console syscall
-    #[cfg(feature = "std")]
-    {
-        println!("{}", text);
-        Ok(())
-    }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = text;
-        // NovaOS syscall with newline
-        Ok(())
-    }
-}
-
-fn eprintln(text: &str) -> PlatformResult<()> {
-    // TODO: Replace with NovaOS console syscall
-    #[cfg(feature = "std")]
-    {
-        eprintln!("{}", text);
-        Ok(())
-    }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = text;
-        // NovaOS syscall: syscall(SYS_WRITE, STDERR, text.as_ptr(), text.len())
-        Ok(())
-    }
-}
-
-fn flush_stdout() -> PlatformResult<()> {
-    // TODO: Replace with NovaOS console flush syscall
-    #[cfg(feature = "std")]
-    {
-        use std::io::{self, Write};
+    fn print(text: &str) -> PlatformResult<()> {
+        print!("{text}");
         io::stdout().flush().map_err(PlatformError::from)
     }
-    #[cfg(not(feature = "std"))]
-    {
+
+    fn println(text: &str) -> PlatformResult<()> {
+        println!("{text}");
         Ok(())
     }
-}
 
-fn read_line(prompt: Option<&str>) -> PlatformResult<String> {
-    // TODO: Replace with NovaOS console input syscall
-    #[cfg(feature = "std")]
-    {
-        use std::io::{self, BufRead, Write};
-        if let Some(p) = prompt {
-            print!("{}", p);
-            io::stdout().flush()?;
+    fn eprintln(text: &str) -> PlatformResult<()> {
+        eprintln!("{text}");
+        Ok(())
+    }
+
+    fn flush_stdout() -> PlatformResult<()> {
+        io::stdout().flush().map_err(PlatformError::from)
+    }
+
+    fn read_line(prompt: Option<&str>) -> PlatformResult<String> {
+        if let Some(message) = prompt {
+            print!("{message}");
+            io::stdout().flush().map_err(PlatformError::from)?;
         }
         let stdin = io::stdin();
         let mut line = String::new();
@@ -301,121 +134,53 @@ fn read_line(prompt: Option<&str>) -> PlatformResult<String> {
         }
         Ok(line)
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = prompt;
-        Err(PlatformError::NotSupported(
-            "NovaOS console input syscall not yet implemented".to_string(),
-        ))
-    }
-}
 
-fn execute_command(spec: &CommandSpec) -> PlatformResult<CommandResult> {
-    // TODO: Replace with NovaOS process execution syscall
-    #[cfg(feature = "std")]
-    {
-        use std::process::{Command, Stdio};
-        let mut cmd = Command::new(&spec.program);
-        cmd.args(&spec.args);
-
-        if let Some(cwd) = &spec.cwd {
-            cmd.current_dir(cwd);
-        }
-
-        if spec.clear_env {
-            cmd.env_clear();
-        }
-
-        if let Some(env) = &spec.env {
-            for (key, value) in env {
-                cmd.env(key, value);
-            }
-        }
-
-        cmd.stdin(match spec.stdin {
-            StdioMode::Inherit => Stdio::inherit(),
-            StdioMode::Null => Stdio::null(),
-            StdioMode::Piped => Stdio::piped(),
-        });
-
-        let output = cmd.output()?;
-        
+    fn execute_command(spec: &CommandSpec) -> PlatformResult<CommandResult> {
+        let mut cmd = build_command(spec);
+        let output = cmd.output().map_err(PlatformError::from)?;
         Ok(CommandResult {
             success: output.status.success(),
             exit_code: output.status.code(),
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         })
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = spec;
-        Err(PlatformError::NotSupported(
-            "NovaOS process execution syscall not yet implemented".to_string(),
-        ))
-    }
-}
 
-fn spawn_command(spec: &CommandSpec) -> PlatformResult<u32> {
-    // TODO: Replace with NovaOS process spawn syscall
-    #[cfg(feature = "std")]
-    {
-        use std::process::{Command, Stdio};
-        let mut cmd = Command::new(&spec.program);
-        cmd.args(&spec.args);
-
-        if let Some(cwd) = &spec.cwd {
-            cmd.current_dir(cwd);
-        }
-
-        if spec.clear_env {
-            cmd.env_clear();
-        }
-
-        if let Some(env) = &spec.env {
-            for (key, value) in env {
-                cmd.env(key, value);
-            }
-        }
-
-        cmd.stdin(match spec.stdin {
-            StdioMode::Inherit => Stdio::inherit(),
-            StdioMode::Null => Stdio::null(),
-            StdioMode::Piped => Stdio::piped(),
-        });
-
-        cmd.stdout(match spec.stdout {
-            StdioMode::Inherit => Stdio::inherit(),
-            StdioMode::Null => Stdio::null(),
-            StdioMode::Piped => Stdio::piped(),
-        });
-
-        cmd.stderr(match spec.stderr {
-            StdioMode::Inherit => Stdio::inherit(),
-            StdioMode::Null => Stdio::null(),
-            StdioMode::Piped => Stdio::piped(),
-        });
-
-        let child = cmd.spawn()?;
+    fn spawn_command(spec: &CommandSpec) -> PlatformResult<u32> {
+        let mut cmd = build_command(spec);
+        let child = cmd.spawn().map_err(PlatformError::from)?;
         Ok(child.id())
     }
-    #[cfg(not(feature = "std"))]
-    {
-        let _ = spec;
-        Err(PlatformError::NotSupported(
-            "NovaOS process spawn syscall not yet implemented".to_string(),
-        ))
+}
+
+fn build_command(spec: &CommandSpec) -> Command {
+    let mut cmd = Command::new(&spec.program);
+    cmd.args(&spec.args);
+
+    if let Some(cwd) = &spec.cwd {
+        cmd.current_dir(cwd);
+    }
+
+    if spec.clear_env {
+        cmd.env_clear();
+    }
+
+    if let Some(vars) = &spec.env {
+        for (key, value) in vars {
+            cmd.env(key, value);
+        }
+    }
+
+    cmd.stdin(map_stdio(spec.stdin));
+    cmd.stdout(map_stdio(spec.stdout));
+    cmd.stderr(map_stdio(spec.stderr));
+    cmd
+}
+
+fn map_stdio(mode: StdioMode) -> Stdio {
+    match mode {
+        StdioMode::Inherit => Stdio::inherit(),
+        StdioMode::Null => Stdio::null(),
+        StdioMode::Piped => Stdio::piped(),
     }
 }
-```
-
-}
-
-//=============================================
-// End Of nova_script/platform/sys_novaos.rs
-//=============================================
-// Notes:
-// - All NovaOS syscalls are marked with TODO comments
-// - Fallback to std implementation when available
-// - NovaCore integration will replace these placeholders
-//=============================================
