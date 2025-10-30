@@ -1,0 +1,25 @@
+; SolvraCore Sample: Loop Counter
+.version 1
+.entry main
+
+.const 0 0
+.const 1 5
+
+.fn main 0 1
+    load_const 0
+    store_local 0
+:loop
+    load_local 0
+    call_native println 1
+    load_local 0
+    load_const 1
+    greater
+    jump_if_true :end
+    load_local 0
+    load_const 1
+    add
+    store_local 0
+    jump :loop
+:end
+    return
+.end

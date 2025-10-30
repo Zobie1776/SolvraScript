@@ -1,0 +1,3 @@
+println("Hybrid execution start");
+core_vm_execute("examples/fast_add.svc");
+println("Hybrid execution complete");

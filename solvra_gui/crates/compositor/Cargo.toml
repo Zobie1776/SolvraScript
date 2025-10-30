@@ -1,0 +1,33 @@
+[package]
+name = "solvra_compositor"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+
+[dependencies]
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "ansi"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+notify = "6"
+calloop = "0.14"
+smithay = { version = "=0.7.0", default-features = false, features = [
+    "backend_egl",
+    "use_system_lib",
+    "renderer_glow",
+    "desktop",
+    "wayland_frontend"
+] }
+theme_engine = { path = "../theme_engine" }
+utils = { path = "../utils" }
+plugin_host = { path = "../plugin_host", optional = true }
+plugin_sdk = { path = "../plugin_sdk", optional = true }
+
+[features]
+full = []
+lite = []
+tablet = ["smithay/virtual_keyboard", "smithay/text_input"]
+plugins = ["plugin_host", "plugin_sdk"]
+offline = []

@@ -1,0 +1,27 @@
+{
+  "functions": [
+    {
+      "arguments": [],
+      "name": "solvra_runtime_new",
+      "returns": "SolvraRuntime*"
+    },
+    {
+      "arguments": [
+        "SolvraRuntime*"
+      ],
+      "name": "solvra_runtime_free",
+      "returns": "SolvraStatus"
+    },
+    {
+      "arguments": [
+        "SolvraRuntime*",
+        "const unsigned char*",
+        "unsigned int",
+        "SolvraValue*"
+      ],
+      "name": "solvra_runtime_execute",
+      "returns": "SolvraStatus"
+    }
+  ],
+  "version": 1
+}

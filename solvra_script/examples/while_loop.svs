@@ -1,0 +1,7 @@
+fn main() {
+    let count = 0;
+    while count < 3 {
+        println("tick");
+        count = count + 1;
+    }
+}

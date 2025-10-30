@@ -1,0 +1,9 @@
+import <vector>;
+import "examples/modules/math_utils.svs" as math;
+
+let mut numbers = vector.make();
+numbers = vector.append(numbers, 3);
+numbers = vector.append(numbers, 4);
+
+println("Vector length:", vector.length(numbers));
+println("Square of 5:", math.square(5));

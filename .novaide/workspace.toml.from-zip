@@ -9,5 +9,5 @@ run = "nova run --experimental"
 test = "cargo +nightly test --all"
 
 [project]
-name = "NovaIDE"
+name = "SolvraIDE"
 autodetect = true

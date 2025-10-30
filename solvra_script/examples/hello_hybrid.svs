@@ -1,0 +1,6 @@
+// hello_hybrid.svs
+fn fast_add(a, b) {
+    return a + b;
+}
+
+println(fast_add(3, 4));

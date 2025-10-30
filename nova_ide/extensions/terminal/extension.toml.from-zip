@@ -1,6 +1,0 @@
-name = "Integrated Terminal"
-version = "0.1.0"
-entrypoint = "dist/terminal.wasm"
-description = "Provides persistent workspace terminals powered by the shell plug-in."
-[permissions]
-fs = true

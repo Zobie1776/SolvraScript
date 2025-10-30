@@ -1,9 +1,0 @@
-//! System abstraction layer for NovaCore.
-
-pub mod drivers;
-pub mod fs;
-pub mod hal;
-pub mod net;
-
-#[cfg(feature = "gpu")]
-pub mod gpu;

@@ -1,7 +1,0 @@
-name = "Git Integration"
-version = "0.1.0"
-entrypoint = "dist/git.wasm"
-description = "Displays repository status and supports commit actions."
-[permissions]
-fs = true
-network = ["https://api.github.com"]

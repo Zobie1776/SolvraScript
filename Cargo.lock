@@ -2471,165 +2471,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 
 [[package]]
-name = "nova_ai"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
-name = "nova_app_store"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "directories",
- "semver",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tracing",
-]
-
-[[package]]
-name = "nova_cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "directories",
- "expectrl",
- "libloading 0.8.9",
- "nova_app_store",
- "novascript",
- "parking_lot",
- "regex",
- "rustyline",
- "semver",
- "serde",
- "serial_test",
- "shell-words",
- "tempfile",
- "thiserror 1.0.69",
- "toml",
- "walkdir",
- "which",
-]
-
-[[package]]
-name = "nova_core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "criterion",
- "crossbeam-deque",
- "crossbeam-queue",
- "once_cell",
- "parking_lot",
- "rand",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tracing",
-]
-
-[[package]]
-name = "nova_fail_safe"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "once_cell",
- "parking_lot",
- "rand",
- "serde",
- "thiserror 1.0.69",
- "toml",
-]
-
-[[package]]
-name = "nova_ide_core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ignore",
- "nova_fail_safe",
- "novascript",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "toml",
-]
-
-[[package]]
-name = "nova_ide_frontend"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "directories",
- "eframe",
- "futures",
- "git2",
- "log",
- "once_cell",
- "parking_lot",
- "serde",
- "serde_json",
- "serde_yaml",
- "syntect",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tower-lsp",
- "walkdir",
-]
-
-[[package]]
-name = "nova_lite"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "egui",
- "futures",
- "nova_ai",
- "nova_core",
- "novascript",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "novascript"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "dirs",
- "nova_core",
- "parking_lot",
- "rand",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3748,6 +3589,168 @@ checksum = "17129e116933cf371d018bb80ae557e889637989d8638274fb25622827b03881"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "solvra_ai"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "solvra_app_store"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "directories",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "solvra_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "directories",
+ "expectrl",
+ "libloading 0.8.9",
+ "parking_lot",
+ "regex",
+ "rustyline",
+ "semver",
+ "serde",
+ "serial_test",
+ "shell-words",
+ "solvra_app_store",
+ "solvrascript",
+ "tempfile",
+ "thiserror 1.0.69",
+ "toml",
+ "walkdir",
+ "which",
+]
+
+[[package]]
+name = "solvra_core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "bincode",
+ "criterion",
+ "crossbeam-deque",
+ "crossbeam-queue",
+ "once_cell",
+ "parking_lot",
+ "rand",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "solvra_fail_safe"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "once_cell",
+ "parking_lot",
+ "rand",
+ "serde",
+ "thiserror 1.0.69",
+ "toml",
+]
+
+[[package]]
+name = "solvra_ide_core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ignore",
+ "serde",
+ "serde_json",
+ "solvra_fail_safe",
+ "solvrascript",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml",
+]
+
+[[package]]
+name = "solvra_ide_frontend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "directories",
+ "eframe",
+ "futures",
+ "git2",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "syntect",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tower-lsp",
+ "walkdir",
+]
+
+[[package]]
+name = "solvra_lite"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "egui",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "solvra_ai",
+ "solvra_core",
+ "solvrascript",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "solvrascript"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "dirs",
+ "once_cell",
+ "parking_lot",
+ "rand",
+ "serde",
+ "serde_json",
+ "solvra_core",
+ "ureq",
 ]
 
 [[package]]

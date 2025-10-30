@@ -1,29 +1,29 @@
-NovaOS
+SolvraOS
 
 
 
 
-Welcome to NovaOS — a modular, AI-native, developer-first operating system for creators, engineers, hackers, and forward-thinkers.
+Welcome to SolvraOS — a modular, AI-native, developer-first operating system for creators, engineers, hackers, and forward-thinkers.
 
 
 
-🚀 What is NovaOS?
+🚀 What is SolvraOS?
 
-NovaOS is a hybrid custom operating system designed from the ground up to:
+SolvraOS is a hybrid custom operating system designed from the ground up to:
 
 Empower developers and creators with full system control
 
 Embed AI and automation into every layer of the OS
 
-Enable rapid application scripting via NovaScript
+Enable rapid application scripting via SolvraScript
 
 Be modular, customizable, and quantum/AI/crypto-ready
 
-Whether you're building apps, training AI models, automating your environment, or designing a new UI — NovaOS gives you the tools and the canvas.
+Whether you're building apps, training AI models, automating your environment, or designing a new UI — SolvraOS gives you the tools and the canvas.
 
 
 
-🎯 Who is NovaOS For?
+🎯 Who is SolvraOS For?
 
 Indie developers & open-source contributors
 
@@ -41,50 +41,50 @@ Futurists building new paradigms
 
 🔧 Key Technologies
 
-NovaScript — a custom scripting language for system automation and app control
+SolvraScript — a custom scripting language for system automation and app control
 
-NovaCore — the virtual machine + bytecode execution engine
+SolvraCore — the virtual machine + bytecode execution engine
 
-NovaShell — the custom GUI shell replacing GNOME/KDE
+SolvraShell — the custom GUI shell replacing GNOME/KDE
 
-NovaIDE — an integrated development environment for NovaScript/Rust
+SolvraIDE — an integrated development environment for SolvraScript/Rust
 
-NovaPlayOS — a game/media launcher for immersive console mode
+SolvraPlayOS — a game/media launcher for immersive console mode
 
-NovaAppStore — a decentralized app store with crypto/NFT support
+SolvraAppStore — a decentralized app store with crypto/NFT support
 
-NovaAI + HiveMind — integrated AI assistants and agent mesh network for collaborative intelligence
+SolvraAI + HiveMind — integrated AI assistants and agent mesh network for collaborative intelligence
 
 
 
 🧪 Current Build Strategy
 
-NovaOS is being built in two major forms:
+SolvraOS is being built in two major forms:
 
-NovaLinux (Hybrid Dev Environment)A minimal Ubuntu Linux base with all NovaOS applications layered on top. Best for developers who want to test-drive NovaOS now.
+SolvraLinux (Hybrid Dev Environment)A minimal Ubuntu Linux base with all SolvraOS applications layered on top. Best for developers who want to test-drive SolvraOS now.
 
-NovaOS (Standalone ISO)The eventual full custom OS with bootloader, shell, runtime, and apps — no external dependencies. Built from scratch and exported as a bootable ISO.
+SolvraOS (Standalone ISO)The eventual full custom OS with bootloader, shell, runtime, and apps — no external dependencies. Built from scratch and exported as a bootable ISO.
 
-📦 How to Install (NovaLinux Dev Version)
+📦 How to Install (SolvraLinux Dev Version)
 
-# 1. Clone the NovaOS repository
-git clone https://github.com/yourname/NovaOS.git
-cd NovaOS
+# 1. Clone the SolvraOS repository
+git clone https://github.com/yourname/SolvraOS.git
+cd SolvraOS
 
 # 2. Create and activate virtual environment
-python3 -m venv novaai-env
-source novaai-env/bin/activate
+python3 -m venv solvraai-env
+source solvraai-env/bin/activate
 
 # 3. Install core libraries and tools
 sudo pacman -Syu git base-devel rust gtk3 qt6 python-pip
 pip install -r requirements.txt
 
-# 4. Compile NovaScript tokenizer + parser
-cd NovaScript
+# 4. Compile SolvraScript tokenizer + parser
+cd SolvraScript
 cargo build --release
 
-# 5. Run NovaShell
-cd ../NovaShell
+# 5. Run SolvraShell
+cd ../SolvraShell
 cargo run
 
 Note: Each app will have its own folder, build process, and dependencies. Future scripts will automate this.
@@ -99,43 +99,43 @@ Purpose
 
 Status
 
-NovaShell
+SolvraShell
 
 GUI shell/desktop replacement
 
 🛠️ Building
 
-NovaIDE
+SolvraIDE
 
 Code editor + REPL + debugger
 
 🛠️ Planning
 
-NovaScript
+SolvraScript
 
 Scripting language and runtime
 
 ✅ Tokenizer done
 
-NovaCore
+SolvraCore
 
 VM + Bytecode compiler
 
 🛠️ Prototyping
 
-NovaAppStore
+SolvraAppStore
 
 Git/NFT based app store
 
 🛠️ Concept stage
 
-NovaPlayOS
+SolvraPlayOS
 
 Game/media dashboard
 
 🛠️ Planning
 
-NovaGlimpses
+SolvraGlimpses
 
 Desktop widgets for data/AI/system info
 
@@ -143,15 +143,15 @@ Desktop widgets for data/AI/system info
 
 
 
-🤖 NovaAI + HiveMind Collaboration
+🤖 SolvraAI + HiveMind Collaboration
 
-NovaAI is your personal assistant, code copilot, and automation partner.
+SolvraAI is your personal assistant, code copilot, and automation partner.
 
 Features:
 
 Built-in voice and text interaction
 
-Works inside NovaIDE, Shell, and PlayOS
+Works inside SolvraIDE, Shell, and PlayOS
 
 Can help write code, run commands, or suggest improvements
 
@@ -161,7 +161,7 @@ Share anonymized learnings across systems
 
 Opt into AI model collaboration
 
-Work together on code, designs, and simulations with NovaAI instances across the network
+Work together on code, designs, and simulations with SolvraAI instances across the network
 
 Set personal encryption and permissions to protect private data
 
@@ -185,7 +185,7 @@ Join the Discord for discussions and roadmap voting
 
 📃 License
 
-NovaOS is licensed under the Apache License 2.0.
+SolvraOS is licensed under the Apache License 2.0.
 
 Copyright [2025] Zachariah Obie
 

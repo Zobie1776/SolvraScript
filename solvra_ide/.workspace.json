@@ -1,0 +1,18 @@
+{
+  "description": "SolvraIDE workspace configuration aggregating Rust and Node projects.",
+  "rust": {
+    "workspaceMembers": ["apps/ide_desktop/src-tauri", "crates/core", "crates/fail_safe"],
+    "tools": {
+      "clippy": "cargo clippy --all-targets --all-features -- -D warnings",
+      "test": "cargo test --all"
+    }
+  },
+  "node": {
+    "workspaceGlobs": ["apps/*", "packages/*", "extensions/*"],
+    "scripts": {
+      "lint": "pnpm lint",
+      "typecheck": "pnpm typecheck",
+      "test": "pnpm test"
+    }
+  }
+}

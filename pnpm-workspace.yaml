@@ -1,4 +1,4 @@
 packages:
-  - "nova_ide/apps/*"
-  - "nova_ide/packages/*"
-  - "nova_ide/extensions/*"
+  - "solvra_ide/apps/*"
+  - "solvra_ide/packages/*"
+  - "solvra_ide/extensions/*"

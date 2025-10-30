@@ -1,0 +1,7 @@
+[book]
+author = "SolvraIDE Team"
+multilingual = false
+title = "SolvraIDE Guide"
+
+[build]
+build-dir = "build"
