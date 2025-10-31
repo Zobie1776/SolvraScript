@@ -3750,6 +3750,8 @@ dependencies = [
  "serde",
  "serde_json",
  "solvra_core",
+ "tempfile",
+ "tokio",
  "ureq",
 ]
 

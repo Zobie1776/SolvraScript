@@ -28,11 +28,17 @@ pub fn from_solvrac(bytecode: &solvrac::Bytecode) -> VmBytecode {
         })
         .collect();
 
+    let entry = bytecode
+        .functions
+        .iter()
+        .position(|function| function.name == "main")
+        .unwrap_or(0);
+
     VmBytecode {
         version: 1,
         constants,
         functions,
-        entry: 0,
+        entry,
     }
 }
 

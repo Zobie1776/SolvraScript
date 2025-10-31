@@ -1,13 +1,3 @@
-//=============================================
-// solvra_script/main.rs
-//=============================================
-// Author: SolvraOS Contributors
-// License: MIT (see LICENSE)
-// Goal: SolvraScript CLI entrypoint for running .svs scripts
-// Objective: Provide parsing, optional diagnostics, and execution with dry-run support
-// Formatting: Zobie.format (.solvraformat)
-//=============================================
-
 mod ast;
 mod core_bridge;
 mod interpreter;
@@ -17,59 +7,56 @@ mod platform;
 mod tokenizer;
 mod vm;
 
-use anyhow::{Context, Result, anyhow};
-use ast::{Program, Stmt};
-use clap::Parser as ClapParser;
-use interpreter::{Interpreter, RuntimeError, value_to_json};
-use parser::{ParseError, Parser};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process;
-use tokenizer::Tokenizer;
+use std::sync::Arc;
 
-//=============================================
-//            Section 1: CLI Definition
-//=============================================
+use anyhow::{Context, Result, anyhow};
+use clap::Parser as ClapParser;
+use parser::{ParseError, Parser};
+use solvra_core::vm::bytecode::VmBytecode;
+use solvra_core::{SolvraError, StackFrame, Value};
+use tokenizer::Tokenizer;
+use vm::compiler;
+use vm::runtime::{RuntimeOptions, SolvraProgram, run_bytecode};
 
 #[derive(Debug, ClapParser)]
 #[command(
     name = "solvrascript",
-    about = "Runs SolvraScript files or evaluates inline expressions.",
+    about = "Executes SolvraScript source (.svs) or bytecode (.svc) files.",
     version
 )]
 struct Args {
-    /// Path to the SolvraScript file to execute.
+    /// Path to a SolvraScript source (.svs) or bytecode (.svc) file.
     script: PathBuf,
 
-    /// Skip side effects such as spawning processes.
+    /// Enable opcode-level tracing (equivalent to setting SOLVRA_TRACE=1).
     #[arg(long)]
-    dry_run: bool,
+    trace: bool,
 
-    /// Evaluate an expression after the script finishes and print the JSON result.
-    #[arg(long)]
-    json: Option<String>,
-
-    /// Pretty-print the parsed AST.
+    /// Pretty-print the parsed AST before execution (source files only).
     #[arg(long)]
     print_ast: bool,
-
-    /// Dump a pseudo IR listing of the program.
-    #[arg(long)]
-    print_ir: bool,
 }
-
-//=============================================
-//            Section 2: Entry Point
-//=============================================
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    run_script(&args)
+    let trace_enabled = args.trace || trace_from_env();
+
+    match file_kind(&args.script) {
+        Some(FileKind::Source) => run_source_file(&args.script, trace_enabled, args.print_ast),
+        Some(FileKind::Bytecode) => run_bytecode_file(&args.script, trace_enabled),
+        None => Err(anyhow!(
+            "unsupported input extension for {}",
+            args.script.display()
+        )),
+    }
 }
 
-fn run_script(args: &Args) -> Result<()> {
-    let source = fs::read_to_string(&args.script)
-        .with_context(|| format!("Failed to read {}", args.script.display()))?;
+fn run_source_file(path: &Path, trace: bool, print_ast: bool) -> Result<()> {
+    let source =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
 
     let mut tokenizer = Tokenizer::new(&source);
     let tokens = tokenizer
@@ -79,66 +66,66 @@ fn run_script(args: &Args) -> Result<()> {
     let mut parser = Parser::new(tokens);
     let program = parser
         .parse()
-        .map_err(|error| map_parse_error(&args.script, error))?;
+        .map_err(|error| map_parse_error(path, error))?;
 
-    if args.print_ast {
+    if print_ast {
         println!("{:#?}", program);
     }
 
-    if args.print_ir {
-        print_ir(&program);
-    }
-
-    let mut interpreter = Interpreter::new();
-    interpreter.set_dry_run(args.dry_run);
-    if let Some(parent) = args.script.parent() {
-        interpreter.add_module_search_path(parent);
-    }
-
-    let result = interpreter
-        .eval_program_with_origin(&program, Some(&args.script))
-        .map_err(|error| match error {
-            RuntimeError::Exit(code) => {
-                process::exit(code);
-            }
-            other => anyhow!(other),
-        })?;
-
-    if let Some(expr) = args.json.as_deref() {
-        evaluate_expression_as_json(&mut interpreter, expr)?;
-        return Ok(());
-    }
-
-    if let Some(value) = result {
-        println!("{value}");
-    }
-
-    Ok(())
+    let bytecode =
+        compiler::compile_program(&program).map_err(|err| anyhow!("compiler error: {err}"))?;
+    let vm_program =
+        VmBytecode::decode(&bytecode[..]).map_err(|err| anyhow!("bytecode decode error: {err}"))?;
+    execute_vm(Arc::new(vm_program), trace)
 }
 
-//=============================================
-//            Section 3: Helpers
-//=============================================
+fn run_bytecode_file(path: &Path, trace: bool) -> Result<()> {
+    let data = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let vm_program =
+        VmBytecode::decode(&data[..]).map_err(|err| anyhow!("failed to decode bytecode: {err}"))?;
+    execute_vm(Arc::new(vm_program), trace)
+}
 
-fn evaluate_expression_as_json(interpreter: &mut Interpreter, expr: &str) -> Result<()> {
-    let mut tokenizer = Tokenizer::new(expr);
-    let tokens = tokenizer
-        .tokenize()
-        .map_err(|err| anyhow!("Tokenizer error in --json expression: {err}"))?;
-    let mut parser = Parser::new(tokens);
-    let expression = parser
-        .parse_expression_only()
-        .map_err(|error| anyhow!("Expression parse error: {error:?}"))?;
-    let value = interpreter
-        .eval_expression(&expression)
-        .map_err(|error| match error {
-            RuntimeError::Exit(code) => {
-                process::exit(code);
+fn execute_vm(program: SolvraProgram, trace: bool) -> Result<()> {
+    match run_bytecode(program, RuntimeOptions::with_trace(trace)) {
+        Ok(value) => {
+            if !matches!(value, Value::Null) {
+                println!("{}", value_to_string(&value));
             }
-            other => anyhow!(other),
-        })?;
-    println!("{}", value_to_json(&value));
-    Ok(())
+            Ok(())
+        }
+        Err(SolvraError::RuntimeException { message, stack }) => {
+            eprintln!("runtime error: {message}");
+            for frame in stack.iter().rev() {
+                eprintln!("    at {}", format_stack_frame(frame));
+            }
+            Err(anyhow!("runtime error: {message}"))
+        }
+        Err(err) => Err(anyhow!("runtime error: {err}")),
+    }
+}
+
+fn trace_from_env() -> bool {
+    env::var("SOLVRA_TRACE")
+        .ok()
+        .map(|value| {
+            let lower = value.to_ascii_lowercase();
+            !(lower.is_empty() || lower == "0" || lower == "false" || lower == "off")
+        })
+        .unwrap_or(false)
+}
+
+enum FileKind {
+    Source,
+    Bytecode,
+}
+
+fn file_kind(path: &Path) -> Option<FileKind> {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("svs") => Some(FileKind::Source),
+        Some("svc") => Some(FileKind::Bytecode),
+        _ => None,
+    }
 }
 
 fn map_parse_error(path: &Path, error: ParseError) -> anyhow::Error {
@@ -162,38 +149,25 @@ fn map_parse_error(path: &Path, error: ParseError) -> anyhow::Error {
             position.column,
             expected
         ),
-        // TODO: handle renamed parser variants (see parser::ParseError) once the new diagnostics land.
         other => anyhow!("{other:?}"),
     }
 }
 
-fn print_ir(program: &Program) {
-    println!(
-        "; SolvraScript pseudo-IR ({} statements)",
-        program.statements.len()
-    );
-    for (index, statement) in program.statements.iter().enumerate() {
-        println!("{:04} | {}", index, describe_statement(statement));
+fn value_to_string(value: &Value) -> String {
+    match value {
+        Value::Null => "null".into(),
+        Value::Boolean(flag) => flag.to_string(),
+        Value::Integer(int) => int.to_string(),
+        Value::Float(float) => float.to_string(),
+        Value::String(text) => text.clone(),
+        Value::Object(_) => "<object>".into(),
     }
 }
 
-fn describe_statement(statement: &Stmt) -> String {
-    use Stmt::*;
-    match statement {
-        ImportDecl { decl } => format!("import {:?}", decl.source),
-        VariableDecl { decl } => format!("let {}", decl.name),
-        FunctionDecl { decl } => format!("fn {}(..)", decl.name),
-        Expression { .. } => "expr".into(),
-        Return { .. } => "return".into(),
-        If { .. } => "if".into(),
-        While { .. } => "while".into(),
-        For { .. } => "for".into(),
-        Block { .. } => "block".into(),
-        Try { .. } => "try".into(),
-        Throw { .. } => "throw".into(),
-        Break { .. } => "break".into(),
-        Continue { .. } => "continue".into(),
-        // TODO: re-enable namespace diagnostics once parser exposes `Decl::Namespace` again.
-        _ => format!("{statement:?}"),
+fn format_stack_frame(frame: &StackFrame) -> String {
+    if let Some(location) = &frame.location {
+        format!("{} ({}:{})", frame.function, location.file, location.line)
+    } else {
+        frame.function.clone()
     }
 }

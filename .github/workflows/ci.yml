@@ -31,6 +31,8 @@ jobs:
         run: cargo test -p solvra_shell
       - name: Cargo tests
         run: cargo test --all
+      - name: Run SolvraScript runtime tests
+        run: cargo test --package solvrascript --tests
       - name: nova_core tests (armv7 backend)
         run: cargo test -p nova_core --no-default-features --features backend-armv7
       - name: nova_core tests (aarch64 backend)
