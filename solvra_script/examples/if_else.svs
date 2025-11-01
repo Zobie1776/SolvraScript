@@ -1,8 +1,0 @@
-fn main() {
-    let score = 7;
-    if score > 5 {
-        println("win");
-    } else {
-        println("lose");
-    }
-}

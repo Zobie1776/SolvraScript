@@ -1,3 +1,0 @@
-println("SolvraRuntime unified loop test start");
-sleep(200);
-println("Task finished successfully");
