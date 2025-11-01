@@ -1,5 +1,7 @@
 SolvraOS
 
+[![CI](https://github.com/Solvra/SolvraOS/actions/workflows/build.yml/badge.svg)](https://github.com/Solvra/SolvraOS/actions/workflows/build.yml)
+
 
 
 

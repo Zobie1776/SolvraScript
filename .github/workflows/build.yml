@@ -1,0 +1,64 @@
+name: Solvra Build & Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_OFFLINE: "true"
+
+jobs:
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["", "telemetry", "msgpack", "perf"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+      - name: Run Clippy
+        run: cargo clippy --all-targets --no-default-features --features ${{ matrix.features }} -- -D warnings
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["", "telemetry", "msgpack", "perf"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Run tests
+        run: cargo test --workspace --no-default-features --features ${{ matrix.features }}
+      - name: Upload test logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.features }}
+          path: |
+            /logs/runtime/
+            /logs/perf/
+        if: always()

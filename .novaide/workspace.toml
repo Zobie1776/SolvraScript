@@ -1,11 +1,11 @@
 [task.default]
-build = "nova build"
-run = "nova run"
+build = "solvra build"
+run = "solvra run"
 test = "cargo test"
 
 [task.nightly]
 build = "cargo +nightly build --all"
-run = "nova run --experimental"
+run = "solvra run --experimental"
 test = "cargo +nightly test --all"
 
 [project]

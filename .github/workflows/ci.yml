@@ -34,9 +34,9 @@ jobs:
       - name: Run SolvraScript runtime tests
         run: cargo test --package solvrascript --tests
       - name: nova_core tests (armv7 backend)
-        run: cargo test -p nova_core --no-default-features --features backend-armv7
+        run: cargo test -p solvra_core --no-default-features --features backend-armv7
       - name: nova_core tests (aarch64 backend)
-        run: cargo test -p nova_core --no-default-features --features backend-aarch64
+        run: cargo test -p solvra_core --no-default-features --features backend-aarch64
       - name: Lint
         run: pnpm lint
       - name: Typecheck
