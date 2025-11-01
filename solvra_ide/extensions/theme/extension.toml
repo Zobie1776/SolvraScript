@@ -1,6 +1,0 @@
-name = "Solarized Theme Switcher"
-version = "0.1.0"
-entrypoint = "dist/theme.wasm"
-description = "Adds Solarized variants and syncs them with Monaco."
-[permissions]
-fs = false

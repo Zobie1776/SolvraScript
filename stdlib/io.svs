@@ -1,0 +1,13 @@
+// SolvraScript standard library: input/output helpers
+
+fn write(value) {
+    prt(value);
+}
+
+fn writeln(value) {
+    println(value);
+}
+
+fn read(prompt) {
+    return input(prompt);
+}

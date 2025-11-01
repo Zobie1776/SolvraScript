@@ -1,0 +1,8 @@
+fn greet(name) {
+    println(name);
+}
+
+fn main() {
+    let message = "Hello! from SolvraScript!";
+    greet(message);
+}

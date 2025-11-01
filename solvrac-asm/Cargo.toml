@@ -1,9 +1,0 @@
-[package]
-name = "solvrac-asm"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-anyhow = "1"
-clap = { version = "4", features = ["derive"] }
-solvra_core = { path = "../solvra_core" }

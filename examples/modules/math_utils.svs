@@ -1,0 +1,7 @@
+fn square(value) {
+    return value * value;
+}
+
+fn cube(value) {
+    return value * value * value;
+}

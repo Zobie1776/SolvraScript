@@ -1,4 +1,0 @@
-packages:
-  - "solvra_ide/apps/*"
-  - "solvra_ide/packages/*"
-  - "solvra_ide/extensions/*"
