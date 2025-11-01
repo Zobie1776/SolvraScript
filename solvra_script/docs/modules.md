@@ -63,6 +63,22 @@ import "examples/modules/math_utils.svs" as math;
 println(math.square(9));
 ```
 
+### Export Declarations
+
+Modules can now declare the exact surface they expose using the `export` keyword. The following forms are supported:
+
+- `export fn compute() { … }` – declares a function and marks it for export.
+- `export let VALUE = 42;` / `export const VALUE = 42;` – exposes variables.
+- `export symbol;` – re-exports an existing binding defined earlier in the module.
+
+When one or more explicit exports are present, the module loader enforces that only the declared symbols are visible to importers. Missing exports raise a runtime error, helping catch typos early. Modules without explicit `export` statements continue to expose all newly created globals for backwards compatibility.
+
+### Auto-compiled Artifacts
+
+The loader now fingerprints every script module (including standard library entries) and compiles it to a cached `.svc` artefact stored under `target/solvra_modules/`. The fingerprint combines the source contents with the workspace version so that updates automatically invalidate the cache. Compilation falls back to interpreted execution when the VM compiler cannot lower a module (for example, for data-only utility files).
+
+Use the new `--hot-reload` flag on `solvrascript` (or set `SOLVRA_HOT_RELOAD=1`) to bypass the cache during development. Hot reload clears stored exports and recompiles affected modules on the next import.
+
 ### Tooling & Build Support
 
 A helper script (`scripts/build_stdlib.sh`) demonstrates how to package standard modules into `.svc` artifacts. The interpreter recognises these artefacts automatically; the exported namespace now complements the script exports with a `module` metadata object while global builtins (`core_module_execute`, `core_module_release`, `core_value_release`) manage execution and lifecycle.

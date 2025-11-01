@@ -17,7 +17,8 @@ This document captures the current state of SolvraScript's built-in runtime libr
 | `len` | ✅ Implemented | Counts Unicode scalar values for strings. |
 | `type` | ✅ Implemented | Returns SolvraScript type names. |
 | `random` | ✅ Implemented | Supports floats and integer ranges. |
-| `time`, `now`, `sleep` | ✅ Implemented | Epoch seconds, structured timestamps, and millisecond sleeps. |
+| `time`, `now` | ✅ Implemented | Epoch seconds and structured timestamps. |
+| `sleep` | ✅ Implemented | Millisecond delay helper backed by the host OS. |
 | `push`, `pop`, `insert`, `remove` | ✅ Implemented | Pure array transformations returning updated structures. |
 | `sin`, `cos`, `tan`, `sqrt`, `log`, `pow`, `abs` | ✅ Implemented | Math helpers built on Rust's `f64` primitives. |
 | `open_file`, `read_file`, `write_file`, `close_file` | ✅ Implemented | Handle-based resource management with path support. |
@@ -26,6 +27,10 @@ This document captures the current state of SolvraScript's built-in runtime libr
 | `on_event`, `trigger_event` | ✅ Implemented | In-process event bus invoking SolvraScript callbacks. |
 | `core_module_execute`, `core_module_release`, `core_value_release` | ✅ Implemented | Bridge compiled SolvraCore modules and managed object handles via the shared memory contract. |
 | `core_memory_stats` | ✅ Implemented | Exposes deterministic allocator usage (capacity, used bytes, allocation count). |
+| `core_memory_events` | ✅ Implemented | Serialises telemetry events captured when telemetry mode is enabled. |
+| `core_timeout_stats` | ✅ Implemented | Serialises timeout and scheduler statistics for diagnostics. |
+| `core_cancel_task` | ✅ Implemented | Requests cancellation of an async task handle and returns success state. |
+| `core_with_deadline` | ✅ Implemented | Applies or clears per-task deadlines in milliseconds. |
 
 ## Still under consideration
 

@@ -1260,9 +1260,48 @@ impl Interpreter {
                 Ok(None)
             }
 
+            Stmt::ExportDecl { decl } => self.execute_export_decl(decl),
+
             other => Err(RuntimeError::NotImplemented(format!(
                 "Statement: {:?}",
                 other
+            ))),
+        }
+    }
+
+    fn execute_export_decl(&mut self, decl: &ExportDecl) -> Result<Option<Value>, RuntimeError> {
+        match &decl.item {
+            ExportItem::Function(function) => {
+                let func = Value::Function {
+                    name: function.name.clone(),
+                    params: function.params.iter().map(|p| p.name.clone()).collect(),
+                    body: function.body.clone(),
+                    closure: self.capture_environment(),
+                };
+                self.define_variable(function.name.clone(), func, false);
+                Ok(None)
+            }
+            ExportItem::Variable(var) => {
+                let value = if let Some(expr) = &var.initializer {
+                    self.eval_expr(expr)?
+                } else {
+                    Value::Null
+                };
+                self.define_variable(var.name.clone(), value, var.is_mutable);
+                Ok(None)
+            }
+            ExportItem::Module(_) => Ok(None),
+            ExportItem::Class(class) => Err(RuntimeError::NotImplemented(format!(
+                "Class export not yet supported: {}",
+                class.name
+            ))),
+            ExportItem::Interface(iface) => Err(RuntimeError::NotImplemented(format!(
+                "Interface export not yet supported: {}",
+                iface.name
+            ))),
+            ExportItem::Type(ty) => Err(RuntimeError::NotImplemented(format!(
+                "Type export not yet supported: {}",
+                ty.name
             ))),
         }
     }
@@ -1299,8 +1338,8 @@ impl Interpreter {
         &mut self,
         descriptor: &ModuleDescriptor,
     ) -> Result<HashMap<String, Value>, RuntimeError> {
-        match &descriptor.artifact {
-            ModuleArtifact::Script { program, path } => {
+        let exports = match &descriptor.artifact {
+            ModuleArtifact::Script { program, path, .. } => {
                 let loader = self.module_loader.clone();
                 let mut module_interpreter = Interpreter::with_loader(loader, self.core.clone());
                 let baseline = module_interpreter.globals_snapshot();
@@ -1309,19 +1348,35 @@ impl Interpreter {
                     module_interpreter.eval_program_with_origin(program, Some(origin.as_path()))?;
                 let updated = module_interpreter.globals_snapshot();
                 let builtins: HashSet<String> = baseline.keys().cloned().collect();
-                let exports = updated
+                updated
                     .into_iter()
                     .filter(|(name, _)| !builtins.contains(name))
-                    .collect::<HashMap<_, _>>();
-                Ok(exports)
+                    .collect::<HashMap<_, _>>()
             }
             ModuleArtifact::Compiled { path, .. } => {
                 let registration = self
                     .core
                     .load_compiled_module(path)
                     .map_err(|err| RuntimeError::Custom(err.to_string()))?;
-                Ok(self.build_compiled_module_exports(registration))
+                self.build_compiled_module_exports(registration)
             }
+        };
+
+        if descriptor.declared_exports.is_empty() {
+            Ok(exports)
+        } else {
+            let mut filtered = HashMap::new();
+            for name in &descriptor.declared_exports {
+                if let Some(value) = exports.get(name) {
+                    filtered.insert(name.clone(), value.clone());
+                } else {
+                    return Err(RuntimeError::Custom(format!(
+                        "Module '{}' does not define declared export '{}'.",
+                        descriptor.id, name
+                    )));
+                }
+            }
+            Ok(filtered)
         }
     }
 

@@ -15,9 +15,9 @@
 #![allow(dead_code)]
 
 use crate::ast::{
-    BinaryOp, BindingKind, CatchBlock, Expr, FunctionDecl, ImportDecl, ImportSource, Literal,
-    MatchArm, Parameter, Pattern, Program, Stmt, StringPart, Type, UnaryOp, VariableDecl,
-    Visibility,
+    BinaryOp, BindingKind, CatchBlock, ExportDecl, ExportItem, Expr, FunctionDecl, ImportDecl,
+    ImportSource, Literal, MatchArm, Parameter, Pattern, Program, Stmt, StringPart, Type, UnaryOp,
+    VariableDecl, Visibility,
 };
 use crate::tokenizer::{Position, Token, TokenKind};
 
@@ -183,6 +183,7 @@ impl Parser {
                 }
             }
             TokenKind::Import => self.parse_import_declaration(),
+            TokenKind::Export => self.parse_export_statement(),
             TokenKind::If => self.parse_if_statement(),
             TokenKind::While => self.parse_while_statement(),
             TokenKind::For => self.parse_for_statement(),
@@ -255,6 +256,72 @@ impl Parser {
         };
 
         Ok(Stmt::VariableDecl { decl })
+    }
+
+    fn parse_export_statement(&mut self) -> Result<Stmt, ParseError> {
+        let start_pos = self.current_position();
+        self.advance(); // consume 'export'
+
+        match &self.peek().kind {
+            TokenKind::Async | TokenKind::Fn => {
+                let stmt = self.parse_function_declaration()?;
+                if let Stmt::FunctionDecl { mut decl } = stmt {
+                    decl.visibility = Visibility::Public;
+                    Ok(Stmt::ExportDecl {
+                        decl: ExportDecl::new(ExportItem::Function(decl), start_pos),
+                    })
+                } else {
+                    Err(ParseError::InvalidSyntax {
+                        message: "Expected function declaration after export".into(),
+                        position: start_pos,
+                    })
+                }
+            }
+            TokenKind::Let => {
+                self.advance();
+                let stmt = self.parse_variable_declaration(start_pos.clone(), BindingKind::Let)?;
+                if let Stmt::VariableDecl { decl } = stmt {
+                    Ok(Stmt::ExportDecl {
+                        decl: ExportDecl::new(ExportItem::Variable(decl), start_pos),
+                    })
+                } else {
+                    Err(ParseError::InvalidSyntax {
+                        message: "Expected variable declaration after export".into(),
+                        position: start_pos,
+                    })
+                }
+            }
+            TokenKind::Const => {
+                self.advance();
+                let stmt =
+                    self.parse_variable_declaration(start_pos.clone(), BindingKind::Const)?;
+                if let Stmt::VariableDecl { decl } = stmt {
+                    Ok(Stmt::ExportDecl {
+                        decl: ExportDecl::new(ExportItem::Variable(decl), start_pos),
+                    })
+                } else {
+                    Err(ParseError::InvalidSyntax {
+                        message: "Expected const declaration after export".into(),
+                        position: start_pos,
+                    })
+                }
+            }
+            TokenKind::Identifier(_) => {
+                let name = if let TokenKind::Identifier(value) = self.advance().kind.clone() {
+                    value
+                } else {
+                    unreachable!()
+                };
+                self.consume_statement_terminator()?;
+                Ok(Stmt::ExportDecl {
+                    decl: ExportDecl::new(ExportItem::Module(name), start_pos),
+                })
+            }
+            other => Err(ParseError::InvalidSyntax {
+                message: format!("Unexpected token after export: {:?}", other),
+                position: self.peek().position.clone(),
+            }),
+        }
     }
 
     /// Parse function declaration: fn name(params) -> return_type { body }

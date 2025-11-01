@@ -49,6 +49,7 @@ pub enum TokenKind {
     Break,
     Continue,
     Import,
+    Export,
     Use,
     Namespace,
     Async,
@@ -190,6 +191,7 @@ impl Tokenizer {
         keywords.insert("break".to_string(), TokenKind::Break);
         keywords.insert("continue".to_string(), TokenKind::Continue);
         keywords.insert("import".to_string(), TokenKind::Import);
+        keywords.insert("export".to_string(), TokenKind::Export);
         keywords.insert("use".to_string(), TokenKind::Use);
         keywords.insert("namespace".to_string(), TokenKind::Namespace);
         keywords.insert("async".to_string(), TokenKind::Async);

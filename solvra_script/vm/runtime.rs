@@ -1,15 +1,20 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use tokio::task::{JoinHandle, LocalSet};
 use tokio::time::sleep;
 
+use solvra_core::concurrency::executor::TaskExecutor;
 use solvra_core::vm::bytecode::{VmBytecode, VmConstant};
 use solvra_core::vm::instruction::{Instruction, Opcode};
 use solvra_core::{SolvraError, SolvraResult, StackFrame, Value};
 
-use super::builtins::Builtins;
+use super::async_control::AsyncControl;
+use super::builtins::{BuiltinContext, Builtins};
+use serde::Serialize;
 
 /// Shared bytecode handle passed into the runtime.
 pub type SolvraProgram = Arc<VmBytecode>;
@@ -20,6 +25,9 @@ pub struct RuntimeOptions {
     pub trace: bool,
     pub async_timeout_ms: Option<u64>,
     pub memory_tracker: Option<MemoryTracker>,
+    pub telemetry_hook: Option<TelemetryHook>,
+    pub telemetry_collector: Option<TelemetryCollector>,
+    pub executor: TaskExecutor,
 }
 
 impl Default for RuntimeOptions {
@@ -28,6 +36,9 @@ impl Default for RuntimeOptions {
             trace: false,
             async_timeout_ms: None,
             memory_tracker: None,
+            telemetry_hook: None,
+            telemetry_collector: None,
+            executor: TaskExecutor::default(),
         }
     }
 }
@@ -53,7 +64,31 @@ impl RuntimeOptions {
         self.memory_tracker = Some(tracker);
         self
     }
+
+    /// Register a telemetry hook invoked on runtime events.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn with_telemetry_hook(mut self, hook: TelemetryHook) -> Self {
+        self.telemetry_hook = Some(hook);
+        self
+    }
+
+    /// Attach a TelemetryCollector and wire its hook automatically.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn with_telemetry_collector(mut self, collector: TelemetryCollector) -> Self {
+        self.telemetry_collector = Some(collector.clone());
+        self.telemetry_hook = Some(collector.hook());
+        self
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn with_executor(mut self, executor: TaskExecutor) -> Self {
+        self.executor = executor;
+        self
+    }
 }
+
+/// Telemetry callback signature for SolvraAI integration.
+use super::metrics::{TelemetryCollector, TelemetryEvent, TelemetryEventKind, TelemetryHook};
 
 /// Shared instrumentation collecting runtime allocation statistics.
 #[derive(Clone, Default)]
@@ -88,9 +123,27 @@ impl MemoryTracker {
         }
     }
 
-    fn record_timeout(&self) {
+    fn record_timeout(&self, stack_depth: usize) {
         if let Ok(mut stats) = self.inner.lock() {
             stats.timeouts += 1;
+            stats.timeout_stack_samples.push(stack_depth);
+            let constant_loads = stats.constant_loads;
+            stats.timeout_constant_samples.push(constant_loads);
+        }
+    }
+
+    fn record_scheduler_tick(&self, snapshots: Vec<TaskSnapshot>) {
+        if let Ok(mut stats) = self.inner.lock() {
+            stats.scheduler_ticks += 1;
+            stats.last_tick_tasks = snapshots;
+            if let Some(max_elapsed) = stats
+                .last_tick_tasks
+                .iter()
+                .map(|snapshot| snapshot.elapsed_ms)
+                .max()
+            {
+                stats.peak_task_elapsed_ms = stats.peak_task_elapsed_ms.max(max_elapsed);
+            }
         }
     }
 
@@ -104,8 +157,16 @@ impl MemoryTracker {
     }
 }
 
+/// Snapshot captured during scheduler tick to support predictive scheduling.
+#[allow(dead_code)]
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct TaskSnapshot {
+    pub label: String,
+    pub elapsed_ms: u64,
+}
+
 /// Memory counters captured during VM execution.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct MemoryStats {
     pub max_stack_depth: usize,
     pub last_stack_depth: usize,
@@ -114,6 +175,11 @@ pub struct MemoryStats {
     pub constant_hits: HashMap<usize, usize>,
     pub task_spawns: usize,
     pub timeouts: usize,
+    pub timeout_stack_samples: Vec<usize>,
+    pub timeout_constant_samples: Vec<usize>,
+    pub scheduler_ticks: usize,
+    pub last_tick_tasks: Vec<TaskSnapshot>,
+    pub peak_task_elapsed_ms: u64,
 }
 
 /// Execute a compiled SolvraScript program to completion.
@@ -137,6 +203,8 @@ pub fn run_bytecode(program: SolvraProgram, options: RuntimeOptions) -> SolvraRe
             context.program.entry,
             Vec::new(),
             entry_label,
+            None,
+            Vec::new(),
         )?;
         executor.run().await
     })
@@ -146,14 +214,22 @@ struct RuntimeContext {
     program: SolvraProgram,
     builtins: Arc<Builtins>,
     options: RuntimeOptions,
+    async_control: AsyncControl,
 }
 
 impl RuntimeContext {
     fn new(program: SolvraProgram, options: RuntimeOptions) -> Self {
+        let async_control = AsyncControl::new();
+        let builtin_context = BuiltinContext {
+            memory_tracker: options.memory_tracker.clone(),
+            telemetry: options.telemetry_collector.clone(),
+            async_control: Some(async_control.clone()),
+        };
         Self {
             program,
-            builtins: Arc::new(Builtins::default()),
+            builtins: Arc::new(Builtins::with_context(builtin_context)),
             options,
+            async_control,
         }
     }
 }
@@ -162,6 +238,7 @@ struct AsyncTask {
     label: String,
     handle: JoinHandle<SolvraResult<Value>>,
     started_at: Instant,
+    core_completion: Arc<AtomicBool>,
 }
 
 struct RuntimeExecutor {
@@ -172,6 +249,10 @@ struct RuntimeExecutor {
     next_task_id: u64,
     task_label: Option<String>,
     task_started_at: Instant,
+    telemetry: Option<Arc<dyn Fn(&TelemetryEvent) + Send + Sync>>,
+    async_control: AsyncControl,
+    executor_id: Option<u64>,
+    lineage: Vec<String>,
 }
 
 impl RuntimeExecutor {
@@ -180,7 +261,10 @@ impl RuntimeExecutor {
         function_index: usize,
         args: Vec<Value>,
         label: Option<String>,
+        executor_id: Option<u64>,
+        lineage: Vec<String>,
     ) -> SolvraResult<Self> {
+        let async_control = ctx.async_control.clone();
         let mut executor = Self {
             ctx,
             frames: Vec::new(),
@@ -189,15 +273,29 @@ impl RuntimeExecutor {
             next_task_id: 0,
             task_label: label,
             task_started_at: Instant::now(),
+            telemetry: None,
+            async_control,
+            executor_id,
+            lineage,
         };
+        if let Some(hook) = &executor.ctx.options.telemetry_hook {
+            executor.telemetry = Some(Arc::clone(hook));
+        }
         executor
             .call_function(function_index, args)
             .map_err(|err| executor.enrich_error(err))?;
+        executor.emit_telemetry_event(
+            TelemetryEventKind::TaskSpawn,
+            executor.task_label.clone(),
+            Some(0),
+            executor.ctx.options.async_timeout_ms,
+        );
         Ok(executor)
     }
 
     async fn run(&mut self) -> SolvraResult<Value> {
         self.record_stack_depth();
+        self.record_scheduler_snapshot();
         loop {
             if let Some(error) = self.enforce_timeouts() {
                 return Err(error);
@@ -339,33 +437,106 @@ impl RuntimeExecutor {
                         label,
                         handle,
                         started_at,
+                        core_completion,
                     } = self.tasks.remove(&task_id).ok_or_else(|| {
                         self.runtime_exception(format!("await on unknown task {task_id}"))
                     })?;
-                    let join_result = if let Some(limit_ms) = self.ctx.options.async_timeout_ms {
-                        let duration = Duration::from_millis(limit_ms);
-                        let handle_fut = handle;
-                        tokio::pin!(handle_fut);
-                        tokio::select! {
-                            res = &mut handle_fut => res,
-                            _ = sleep(duration) => {
-                                handle_fut.as_ref().get_ref().abort();
+
+                    if self.async_control.is_cancelled(task_id) {
+                        self.async_control.complete(task_id);
+                        handle.abort();
+                        self.abort_all_tasks();
+                        self.emit_telemetry_event(
+                            TelemetryEventKind::TaskCancel,
+                            Some(label.clone()),
+                            Some(started_at.elapsed().as_millis() as u64),
+                            self.ctx.options.async_timeout_ms,
+                        );
+                        core_completion.store(true, Ordering::SeqCst);
+                        let error = self.cancellation_runtime_exception(&label);
+                        self.clear_state();
+                        return Err(error);
+                    }
+
+                    let join_result =
+                        if let Some(deadline) = self.task_deadline(task_id, started_at) {
+                            let now = Instant::now();
+                            if now >= deadline {
+                                self.async_control.complete(task_id);
                                 self.abort_all_tasks();
-                                self.record_timeout_event();
-                                let elapsed_ms = started_at.elapsed().as_millis() as u64;
+                                self.emit_telemetry_event(
+                                    TelemetryEventKind::TaskTimeout,
+                                    Some(label.clone()),
+                                    Some(now.duration_since(started_at).as_millis() as u64),
+                                    self.ctx.options.async_timeout_ms,
+                                );
+                                self.record_timeout_event(self.stack.len());
+                                let elapsed_ms = now.duration_since(started_at).as_millis() as u64;
                                 let error = self.timeout_runtime_exception(&label, elapsed_ms);
                                 self.clear_state();
                                 return Err(error);
                             }
+                            let duration = deadline.saturating_duration_since(now);
+                            let handle_fut = handle;
+                            tokio::pin!(handle_fut);
+                            tokio::select! {
+                                res = &mut handle_fut => res,
+                                _ = sleep(duration) => {
+                                    handle_fut.as_ref().get_ref().abort();
+                                    self.async_control.complete(task_id);
+                                    self.abort_all_tasks();
+                                    self.emit_telemetry_event(
+                                        TelemetryEventKind::TaskTimeout,
+                                        Some(label.clone()),
+                                        Some(started_at.elapsed().as_millis() as u64),
+                                        self.ctx.options.async_timeout_ms,
+                                    );
+                                    self.record_timeout_event(self.stack.len());
+                                    let elapsed_ms = started_at.elapsed().as_millis() as u64;
+                                    core_completion.store(true, Ordering::SeqCst);
+                                    let error = self.timeout_runtime_exception(&label, elapsed_ms);
+                                    self.clear_state();
+                                    return Err(error);
+                                }
+                            }
+                        } else {
+                            handle.await
+                        };
+                    self.async_control.complete(task_id);
+                    core_completion.store(true, Ordering::SeqCst);
+                    match join_result {
+                        Ok(inner) => match inner {
+                            Ok(value) => {
+                                self.emit_telemetry_event(
+                                    TelemetryEventKind::TaskJoin,
+                                    Some(label.clone()),
+                                    Some(started_at.elapsed().as_millis() as u64),
+                                    self.ctx.options.async_timeout_ms,
+                                );
+                                self.stack.push(value);
+                            }
+                            Err(err) => {
+                                self.emit_telemetry_event(
+                                    TelemetryEventKind::TaskPanic,
+                                    Some(label.clone()),
+                                    Some(started_at.elapsed().as_millis() as u64),
+                                    self.ctx.options.async_timeout_ms,
+                                );
+                                return Err(self.attach_stack(err));
+                            }
+                        },
+                        Err(err) => {
+                            self.emit_telemetry_event(
+                                TelemetryEventKind::TaskPanic,
+                                Some(label.clone()),
+                                Some(started_at.elapsed().as_millis() as u64),
+                                self.ctx.options.async_timeout_ms,
+                            );
+                            return Err(
+                                self.runtime_exception(format!("async task {label} panic: {err}"))
+                            );
                         }
-                    } else {
-                        handle.await
-                    };
-                    let joined = join_result.map_err(|err| {
-                        self.runtime_exception(format!("async task {label} panic: {err}"))
-                    })?;
-                    let value = joined.map_err(|err| self.attach_stack(err))?;
-                    self.stack.push(value);
+                    }
                 }
                 Opcode::Return => {
                     let return_value = self.stack.pop().unwrap_or(Value::Null);
@@ -389,6 +560,7 @@ impl RuntimeExecutor {
                 frame.ip += 1;
             }
             self.record_stack_depth();
+            self.record_scheduler_snapshot();
         }
     }
 
@@ -537,30 +709,59 @@ impl RuntimeExecutor {
             .get(function_index)
             .map(|func| func.name.clone())
             .unwrap_or_else(|| format!("#{}", function_index));
-        let ctx = Arc::clone(&self.ctx);
         let started_at = Instant::now();
         let task_id = {
             let id = self.next_task_id;
             self.next_task_id += 1;
             id
         };
-
-        let async_label = function_label.clone();
-        let handle = tokio::task::spawn_local(async move {
-            let mut executor = RuntimeExecutor::new(ctx, function_index, args, Some(async_label))?;
-            match executor.run().await {
-                Ok(value) => Ok(value),
-                Err(err) => Err(executor.enrich_error(err)),
+        let lineage = self.current_lineage();
+        let async_control = self.async_control.clone();
+        async_control.register(task_id);
+        let completion_flag = Arc::new(AtomicBool::new(false));
+        let completion_clone = completion_flag.clone();
+        self.ctx.options.executor.spawn(move || {
+            while !completion_clone.load(Ordering::SeqCst) {
+                thread::sleep(Duration::from_millis(1));
             }
         });
+
+        let ctx = Arc::clone(&self.ctx);
         let label = format!("{}#{}", function_label, task_id);
+        let control_clone = async_control.clone();
+        let completion_for_task = completion_flag.clone();
+        let async_label = function_label.clone();
+        let handle = tokio::task::spawn_local(async move {
+            let mut executor = RuntimeExecutor::new(
+                ctx,
+                function_index,
+                args,
+                Some(async_label.clone()),
+                Some(task_id),
+                lineage,
+            )?;
+            let result = executor
+                .run()
+                .await
+                .map_err(|err| executor.enrich_error(err));
+            control_clone.complete(task_id);
+            completion_for_task.store(true, Ordering::SeqCst);
+            result
+        });
         self.tasks.insert(
             task_id,
             AsyncTask {
-                label,
+                label: label.clone(),
                 handle,
                 started_at,
+                core_completion: completion_flag,
             },
+        );
+        self.emit_telemetry_event(
+            TelemetryEventKind::TaskSpawn,
+            Some(label),
+            Some(0),
+            self.ctx.options.async_timeout_ms,
         );
         self.record_task_spawn();
         Ok(task_id)
@@ -573,40 +774,119 @@ impl RuntimeExecutor {
         }
     }
 
+    fn current_lineage(&self) -> Vec<String> {
+        let mut lineage = self.lineage.clone();
+        if let Some(label) = &self.task_label {
+            lineage.push(label.clone());
+        }
+        lineage
+    }
+
+    fn lineage_string(&self, tail: &str) -> String {
+        let mut lineage = self.current_lineage();
+        lineage.push(tail.to_string());
+        lineage.join(" -> ")
+    }
+
+    fn executor_deadline(&self) -> Option<Instant> {
+        let mut deadlines = Vec::new();
+        if let Some(ms) = self.ctx.options.async_timeout_ms {
+            deadlines.push(self.task_started_at + Duration::from_millis(ms));
+        }
+        if let Some(id) = self.executor_id {
+            if let Some(deadline) = self.async_control.deadline(id) {
+                deadlines.push(deadline);
+            }
+        }
+        deadlines.into_iter().min()
+    }
+
+    fn task_deadline(&self, task_id: u64, started_at: Instant) -> Option<Instant> {
+        let mut deadlines = Vec::new();
+        if let Some(ms) = self.ctx.options.async_timeout_ms {
+            deadlines.push(started_at + Duration::from_millis(ms));
+        }
+        if let Some(deadline) = self.async_control.deadline(task_id) {
+            deadlines.push(deadline);
+        }
+        deadlines.into_iter().min()
+    }
+
+    fn task_overview(&self) -> Vec<(u64, String, Instant)> {
+        self.tasks
+            .iter()
+            .map(|(id, task)| (*id, task.label.clone(), task.started_at))
+            .collect()
+    }
+
     fn enforce_timeouts(&mut self) -> Option<SolvraError> {
-        let timeout_ms = self.ctx.options.async_timeout_ms?;
-        let limit = Duration::from_millis(timeout_ms);
         let now = Instant::now();
 
-        if now.duration_since(self.task_started_at) > limit {
-            let label = self
-                .task_label
-                .clone()
-                .unwrap_or_else(|| "<task>".to_string());
-            self.abort_all_tasks();
-            self.record_timeout_event();
-            let elapsed_ms = now.duration_since(self.task_started_at).as_millis() as u64;
-            let error = self.timeout_runtime_exception(&label, elapsed_ms);
-            self.clear_state();
-            return Some(error);
+        if let Some(executor_id) = self.executor_id {
+            if self.async_control.is_cancelled(executor_id) {
+                self.abort_all_tasks();
+                self.async_control.complete(executor_id);
+                self.emit_telemetry_event(
+                    TelemetryEventKind::TaskCancel,
+                    self.task_label.clone(),
+                    Some(
+                        now.saturating_duration_since(self.task_started_at)
+                            .as_millis() as u64,
+                    ),
+                    self.ctx.options.async_timeout_ms,
+                );
+                let label = self
+                    .task_label
+                    .clone()
+                    .unwrap_or_else(|| "<task>".to_string());
+                let error = self.cancellation_runtime_exception(&label);
+                self.clear_state();
+                return Some(error);
+            }
         }
 
-        if !self.tasks.is_empty() {
-            let mut timed_out_task: Option<(String, Instant)> = None;
-            for task in self.tasks.values() {
-                if now.duration_since(task.started_at) > limit {
-                    timed_out_task = Some((task.label.clone(), task.started_at));
-                    break;
-                }
-            }
-
-            if let Some((label, started_at)) = timed_out_task {
+        if let Some(deadline) = self.executor_deadline() {
+            if now >= deadline {
+                let label = self
+                    .task_label
+                    .clone()
+                    .unwrap_or_else(|| "<task>".to_string());
                 self.abort_all_tasks();
-                self.record_timeout_event();
-                let elapsed_ms = now.duration_since(started_at).as_millis() as u64;
+                self.emit_telemetry_event(
+                    TelemetryEventKind::TaskTimeout,
+                    self.task_label.clone(),
+                    Some(
+                        now.saturating_duration_since(self.task_started_at)
+                            .as_millis() as u64,
+                    ),
+                    self.ctx.options.async_timeout_ms,
+                );
+                self.record_timeout_event(self.stack.len());
+                let elapsed_ms = now
+                    .saturating_duration_since(self.task_started_at)
+                    .as_millis() as u64;
                 let error = self.timeout_runtime_exception(&label, elapsed_ms);
                 self.clear_state();
                 return Some(error);
+            }
+        }
+
+        for (task_id, label, started_at) in self.task_overview() {
+            if let Some(deadline) = self.task_deadline(task_id, started_at) {
+                if now >= deadline {
+                    self.abort_all_tasks();
+                    self.emit_telemetry_event(
+                        TelemetryEventKind::TaskTimeout,
+                        Some(label.clone()),
+                        Some(now.duration_since(started_at).as_millis() as u64),
+                        self.ctx.options.async_timeout_ms,
+                    );
+                    self.record_timeout_event(self.stack.len());
+                    let elapsed_ms = now.duration_since(started_at).as_millis() as u64;
+                    let error = self.timeout_runtime_exception(&label, elapsed_ms);
+                    self.clear_state();
+                    return Some(error);
+                }
             }
         }
 
@@ -614,17 +894,30 @@ impl RuntimeExecutor {
     }
 
     fn timeout_runtime_exception(&self, task_label: &str, elapsed_ms: u64) -> SolvraError {
+        let lineage = self.lineage_string(task_label);
         SolvraError::RuntimeException {
             message: format!(
-                "RuntimeException::Timeout {{ task: {task_label}, elapsed_ms: {elapsed_ms} }}"
+                "RuntimeException::Timeout {{ task: {task_label}, elapsed_ms: {elapsed_ms}, lineage: {lineage} }}"
+            ),
+            stack: self.capture_stack_trace(),
+        }
+    }
+
+    fn cancellation_runtime_exception(&self, task_label: &str) -> SolvraError {
+        let lineage = self.lineage_string(task_label);
+        SolvraError::RuntimeException {
+            message: format!(
+                "RuntimeException::Cancelled {{ task: {task_label}, lineage: {lineage} }}"
             ),
             stack: self.capture_stack_trace(),
         }
     }
 
     fn abort_all_tasks(&mut self) {
-        for (_, task) in self.tasks.drain() {
+        for (task_id, task) in self.tasks.drain() {
             task.handle.abort();
+            self.async_control.complete(task_id);
+            task.core_completion.store(true, Ordering::SeqCst);
         }
     }
 
@@ -712,9 +1005,48 @@ impl RuntimeExecutor {
         }
     }
 
-    fn record_timeout_event(&self) {
+    fn record_timeout_event(&self, stack_depth: usize) {
         if let Some(tracker) = &self.ctx.options.memory_tracker {
-            tracker.record_timeout();
+            tracker.record_timeout(stack_depth);
+        }
+    }
+
+    fn emit_telemetry_event(
+        &self,
+        kind: TelemetryEventKind,
+        task_label: Option<String>,
+        elapsed_ms: Option<u64>,
+        threshold_ms: Option<u64>,
+    ) {
+        if let Some(hook) = &self.telemetry {
+            let event = TelemetryEvent {
+                kind,
+                task_label,
+                elapsed_ms,
+                timeout_threshold_ms: threshold_ms,
+                stack_depth: self.stack.len(),
+                timestamp: Instant::now(),
+            };
+            hook(&event);
+        }
+    }
+
+    fn record_scheduler_snapshot(&self) {
+        if let Some(tracker) = &self.ctx.options.memory_tracker {
+            let mut snapshots = Vec::new();
+            if let Some(label) = &self.task_label {
+                snapshots.push(TaskSnapshot {
+                    label: label.clone(),
+                    elapsed_ms: self.task_started_at.elapsed().as_millis() as u64,
+                });
+            }
+            for task in self.tasks.values() {
+                snapshots.push(TaskSnapshot {
+                    label: task.label.clone(),
+                    elapsed_ms: task.started_at.elapsed().as_millis() as u64,
+                });
+            }
+            tracker.record_scheduler_tick(snapshots);
         }
     }
 }

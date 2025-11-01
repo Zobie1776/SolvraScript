@@ -43,6 +43,7 @@
 
 - Implemented deterministic timeout enforcement inside `solvra_script/vm/runtime.rs`, capturing elapsed duration, task label, and merged stack traces while aborting pending async handles.
 - Added metrics hook `MemoryStats::timeouts` and wired reporting through `MemoryTracker::record_timeout`.
+- Introduced telemetry hook API (`RuntimeOptions::with_telemetry_hook`) emitting spawn/timeout/join events for SolvraAI adaptive feedback, with coverage asserted in `async_timeout_tests.rs`.
 - Regression script `solvra_script/examples/async_timeout.svs` spins indefinitely; `solvra_script/vm/tests/async_timeout_tests.rs` drives it with `RuntimeOptions::with_async_timeout(10)` and verifies `RuntimeException::Timeout` plus stack frames (`long_task`, `main`).
 - Validation commands:
   - `cargo test -p solvrascript async_timeout`

@@ -15,11 +15,13 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use clap::Parser as ClapParser;
 use parser::{ParseError, Parser};
+use serde_json::json;
 use solvra_core::vm::bytecode::VmBytecode;
 use solvra_core::{SolvraError, StackFrame, Value};
 use tokenizer::Tokenizer;
+use vm::TelemetryCollector;
 use vm::compiler;
-use vm::runtime::{RuntimeOptions, SolvraProgram, run_bytecode};
+use vm::runtime::{MemoryTracker, RuntimeOptions, SolvraProgram, run_bytecode};
 
 #[derive(Debug, ClapParser)]
 #[command(
@@ -42,19 +44,58 @@ struct Args {
     /// Pretty-print the parsed AST before execution (source files only).
     #[arg(long)]
     print_ast: bool,
+
+    /// Emit runtime telemetry as JSON to stdout after execution completes.
+    #[arg(long)]
+    telemetry: bool,
+
+    /// Emit memory statistics JSON after execution completes.
+    #[arg(long = "memory-stats")]
+    memory_stats: bool,
+
+    /// Enable module hot reload semantics for imports.
+    #[arg(long)]
+    hot_reload: bool,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    modules::set_global_hot_reload(args.hot_reload);
     let trace_enabled = args.trace || trace_from_env();
     let mut options = RuntimeOptions::with_trace(trace_enabled);
     if let Some(timeout_ms) = args.async_timeout_ms.or_else(async_timeout_from_env) {
         options = options.with_async_timeout(timeout_ms);
     }
 
+    let telemetry_collector = if args.telemetry {
+        Some(TelemetryCollector::new())
+    } else {
+        None
+    };
+    if let Some(collector) = &telemetry_collector {
+        options = options.with_telemetry_collector(collector.clone());
+    }
+
+    let memory_tracker = if args.memory_stats {
+        Some(MemoryTracker::new())
+    } else {
+        None
+    };
+    if let Some(tracker) = &memory_tracker {
+        options = options.with_memory_tracker(tracker.clone());
+    }
+
     match file_kind(&args.script) {
-        Some(FileKind::Source) => run_source_file(&args.script, options.clone(), args.print_ast),
-        Some(FileKind::Bytecode) => run_bytecode_file(&args.script, options),
+        Some(FileKind::Source) => run_source_file(
+            &args.script,
+            options.clone(),
+            args.print_ast,
+            telemetry_collector.clone(),
+            memory_tracker.clone(),
+        ),
+        Some(FileKind::Bytecode) => {
+            run_bytecode_file(&args.script, options, telemetry_collector, memory_tracker)
+        }
         None => Err(anyhow!(
             "unsupported input extension for {}",
             args.script.display()
@@ -62,7 +103,13 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_source_file(path: &Path, options: RuntimeOptions, print_ast: bool) -> Result<()> {
+fn run_source_file(
+    path: &Path,
+    options: RuntimeOptions,
+    print_ast: bool,
+    telemetry: Option<TelemetryCollector>,
+    memory_tracker: Option<MemoryTracker>,
+) -> Result<()> {
     let source =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
 
@@ -84,24 +131,30 @@ fn run_source_file(path: &Path, options: RuntimeOptions, print_ast: bool) -> Res
         compiler::compile_program(&program).map_err(|err| anyhow!("compiler error: {err}"))?;
     let vm_program =
         VmBytecode::decode(&bytecode[..]).map_err(|err| anyhow!("bytecode decode error: {err}"))?;
-    execute_vm(Arc::new(vm_program), options)
+    let value = execute_vm(Arc::new(vm_program), options)?;
+    emit_runtime_value(&value);
+    emit_runtime_metrics(telemetry, memory_tracker)?;
+    Ok(())
 }
 
-fn run_bytecode_file(path: &Path, options: RuntimeOptions) -> Result<()> {
+fn run_bytecode_file(
+    path: &Path,
+    options: RuntimeOptions,
+    telemetry: Option<TelemetryCollector>,
+    memory_tracker: Option<MemoryTracker>,
+) -> Result<()> {
     let data = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
     let vm_program =
         VmBytecode::decode(&data[..]).map_err(|err| anyhow!("failed to decode bytecode: {err}"))?;
-    execute_vm(Arc::new(vm_program), options)
+    let value = execute_vm(Arc::new(vm_program), options)?;
+    emit_runtime_value(&value);
+    emit_runtime_metrics(telemetry, memory_tracker)?;
+    Ok(())
 }
 
-fn execute_vm(program: SolvraProgram, options: RuntimeOptions) -> Result<()> {
+fn execute_vm(program: SolvraProgram, options: RuntimeOptions) -> Result<Value> {
     match run_bytecode(program, options) {
-        Ok(value) => {
-            if !matches!(value, Value::Null) {
-                println!("{}", value_to_string(&value));
-            }
-            Ok(())
-        }
+        Ok(value) => Ok(value),
         Err(SolvraError::RuntimeException { message, stack }) => {
             eprintln!("runtime error: {message}");
             for frame in stack.iter().rev() {
@@ -111,6 +164,33 @@ fn execute_vm(program: SolvraProgram, options: RuntimeOptions) -> Result<()> {
         }
         Err(err) => Err(anyhow!("runtime error: {err}")),
     }
+}
+
+fn emit_runtime_value(value: &Value) {
+    if !matches!(value, Value::Null) {
+        println!("{}", value_to_string(value));
+    }
+}
+
+fn emit_runtime_metrics(
+    telemetry: Option<TelemetryCollector>,
+    memory_tracker: Option<MemoryTracker>,
+) -> Result<()> {
+    if let Some(collector) = telemetry {
+        let events = collector.snapshot();
+        let json = serde_json::to_string(&json!({ "events": events }))
+            .map_err(|err| anyhow!("failed to serialise telemetry events: {err}"))?;
+        println!("{json}");
+    }
+
+    if let Some(tracker) = memory_tracker {
+        let stats = tracker.snapshot();
+        let json = serde_json::to_string(&json!({ "memory_stats": stats }))
+            .map_err(|err| anyhow!("failed to serialise memory stats: {err}"))?;
+        println!("{json}");
+    }
+
+    Ok(())
 }
 
 fn trace_from_env() -> bool {
