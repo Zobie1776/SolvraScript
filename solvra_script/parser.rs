@@ -2,7 +2,7 @@
 // solvra_script/parser.rs
 //=============================================
 // Author: SolvraOS Contributors
-// License: MIT (see LICENSE)
+// License: MIT (See License)
 // Goal: SolvraScript recursive descent parser implementation
 // Objective: Transform token streams into AST nodes consumed by interpreter
 // Formatting: Zobie.format (.solvraformat)
@@ -175,6 +175,13 @@ impl Parser {
                 self.parse_variable_declaration(start_pos, BindingKind::Const)
             }
             TokenKind::Fn => self.parse_function_declaration(),
+            TokenKind::Async => {
+                if matches!(self.peek_next().kind, TokenKind::Fn) {
+                    self.parse_function_declaration()
+                } else {
+                    self.parse_expression_statement()
+                }
+            }
             TokenKind::Import => self.parse_import_declaration(),
             TokenKind::If => self.parse_if_statement(),
             TokenKind::While => self.parse_while_statement(),
@@ -772,22 +779,22 @@ impl Parser {
     /// Parse unary expression: !, -
     fn parse_unary(&mut self) -> Result<Expr, ParseError> {
         if self.check(&TokenKind::Async) {
-            let start_pos = self.current_position();
+            let position = self.current_position();
             self.advance();
             let expr = self.parse_unary()?;
             return Ok(Expr::Async {
                 expr: Box::new(expr),
-                position: start_pos,
+                position,
             });
         }
 
         if self.check(&TokenKind::Await) {
-            let start_pos = self.current_position();
+            let position = self.current_position();
             self.advance();
             let expr = self.parse_unary()?;
             return Ok(Expr::Await {
                 expr: Box::new(expr),
-                position: start_pos,
+                position,
             });
         }
 
@@ -1210,6 +1217,14 @@ impl Parser {
         self.tokens
             .get(self.current)
             .unwrap_or_else(|| self.tokens.last().unwrap())
+    }
+
+    fn peek_next(&self) -> &Token {
+        if self.current + 1 >= self.tokens.len() {
+            self.tokens.last().unwrap()
+        } else {
+            &self.tokens[self.current + 1]
+        }
     }
 
     // Utility: advance to next token and return previous

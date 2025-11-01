@@ -24,6 +24,7 @@
 | 2025-10-31T04:24:12Z    | `cargo test -p solvrascript async`     | Phase 6.2 async suite            | ✅ Pass |
 | 2025-10-31T04:27:05Z    | `cargo test -p solvrascript memory`    | Phase 6.3 memory suite           | ✅ Pass |
 | 2025-10-31T04:29:38Z    | `cargo test -p solvrascript --tests`   | Full SolvraScript crate coverage | ✅ Pass |
+| 2025-11-01T00:37:05Z    | `cargo test -p solvrascript async_timeout` | Phase 6.3A timeout validation | ✅ Pass |
 
 ## Artifacts & Key Files
 
@@ -36,4 +37,14 @@
 ## Notes
 
 - Memory tracker utilities (`MemoryTracker`) are exposed for future diagnostics; production builds remain unaffected unless the tracker is enabled.
-- Async timeout API (`RuntimeOptions::with_async_timeout`) is stubbed for forthcoming phases; instrumentation ensures panic paths now include merged child/parent stack contexts.
+- Async timeout enforcement now triggers deterministic `RuntimeException::Timeout` errors with merged stack traces and proper cleanup.
+
+### Async Timeout Coverage
+
+- Implemented deterministic timeout enforcement inside `solvra_script/vm/runtime.rs`, capturing elapsed duration, task label, and merged stack traces while aborting pending async handles.
+- Added metrics hook `MemoryStats::timeouts` and wired reporting through `MemoryTracker::record_timeout`.
+- Regression script `solvra_script/examples/async_timeout.svs` spins indefinitely; `solvra_script/vm/tests/async_timeout_tests.rs` drives it with `RuntimeOptions::with_async_timeout(10)` and verifies `RuntimeException::Timeout` plus stack frames (`long_task`, `main`).
+- Validation commands:
+  - `cargo test -p solvrascript async_timeout`
+  - `cargo run -p solvrascript --bin solvrascript -- --async-timeout-ms 10 solvra_script/examples/async_timeout.svs`
+  - Expected stderr contains `RuntimeException::Timeout { task: long_task…, elapsed_ms: … }` with stack trace; memory tracker reports `timeouts == 1` and stack depth reset.

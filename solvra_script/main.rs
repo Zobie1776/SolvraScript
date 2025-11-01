@@ -35,6 +35,10 @@ struct Args {
     #[arg(long)]
     trace: bool,
 
+    /// Async timeout in milliseconds (equivalent to SOLVRA_ASYNC_TIMEOUT_MS).
+    #[arg(long, value_name = "MS")]
+    async_timeout_ms: Option<u64>,
+
     /// Pretty-print the parsed AST before execution (source files only).
     #[arg(long)]
     print_ast: bool,
@@ -43,10 +47,14 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
     let trace_enabled = args.trace || trace_from_env();
+    let mut options = RuntimeOptions::with_trace(trace_enabled);
+    if let Some(timeout_ms) = args.async_timeout_ms.or_else(async_timeout_from_env) {
+        options = options.with_async_timeout(timeout_ms);
+    }
 
     match file_kind(&args.script) {
-        Some(FileKind::Source) => run_source_file(&args.script, trace_enabled, args.print_ast),
-        Some(FileKind::Bytecode) => run_bytecode_file(&args.script, trace_enabled),
+        Some(FileKind::Source) => run_source_file(&args.script, options.clone(), args.print_ast),
+        Some(FileKind::Bytecode) => run_bytecode_file(&args.script, options),
         None => Err(anyhow!(
             "unsupported input extension for {}",
             args.script.display()
@@ -54,7 +62,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_source_file(path: &Path, trace: bool, print_ast: bool) -> Result<()> {
+fn run_source_file(path: &Path, options: RuntimeOptions, print_ast: bool) -> Result<()> {
     let source =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
 
@@ -76,18 +84,18 @@ fn run_source_file(path: &Path, trace: bool, print_ast: bool) -> Result<()> {
         compiler::compile_program(&program).map_err(|err| anyhow!("compiler error: {err}"))?;
     let vm_program =
         VmBytecode::decode(&bytecode[..]).map_err(|err| anyhow!("bytecode decode error: {err}"))?;
-    execute_vm(Arc::new(vm_program), trace)
+    execute_vm(Arc::new(vm_program), options)
 }
 
-fn run_bytecode_file(path: &Path, trace: bool) -> Result<()> {
+fn run_bytecode_file(path: &Path, options: RuntimeOptions) -> Result<()> {
     let data = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
     let vm_program =
         VmBytecode::decode(&data[..]).map_err(|err| anyhow!("failed to decode bytecode: {err}"))?;
-    execute_vm(Arc::new(vm_program), trace)
+    execute_vm(Arc::new(vm_program), options)
 }
 
-fn execute_vm(program: SolvraProgram, trace: bool) -> Result<()> {
-    match run_bytecode(program, RuntimeOptions::with_trace(trace)) {
+fn execute_vm(program: SolvraProgram, options: RuntimeOptions) -> Result<()> {
+    match run_bytecode(program, options) {
         Ok(value) => {
             if !matches!(value, Value::Null) {
                 println!("{}", value_to_string(&value));
@@ -113,6 +121,13 @@ fn trace_from_env() -> bool {
             !(lower.is_empty() || lower == "0" || lower == "false" || lower == "off")
         })
         .unwrap_or(false)
+}
+
+fn async_timeout_from_env() -> Option<u64> {
+    env::var("SOLVRA_ASYNC_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|timeout| *timeout > 0)
 }
 
 enum FileKind {

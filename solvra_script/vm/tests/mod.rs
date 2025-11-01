@@ -5,5 +5,6 @@
 //=============================================
 
 mod async_tests;
+mod async_timeout_tests;
 mod memory_tests;
 mod parity_tests;

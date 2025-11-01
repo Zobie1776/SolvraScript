@@ -1,0 +1,10 @@
+async fn long_task() {
+    while true {
+        // spin until timeout fires
+    }
+}
+
+fn main() {
+    let task = async long_task();
+    await task;
+}

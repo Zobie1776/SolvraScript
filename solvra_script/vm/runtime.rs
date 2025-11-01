@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::task::{JoinHandle, LocalSet};
-use tokio::time::timeout;
+use tokio::time::sleep;
 
 use solvra_core::vm::bytecode::{VmBytecode, VmConstant};
 use solvra_core::vm::instruction::{Instruction, Opcode};
@@ -18,7 +18,7 @@ pub type SolvraProgram = Arc<VmBytecode>;
 #[derive(Clone)]
 pub struct RuntimeOptions {
     pub trace: bool,
-    pub await_timeout: Option<Duration>,
+    pub async_timeout_ms: Option<u64>,
     pub memory_tracker: Option<MemoryTracker>,
 }
 
@@ -26,7 +26,7 @@ impl Default for RuntimeOptions {
     fn default() -> Self {
         Self {
             trace: false,
-            await_timeout: None,
+            async_timeout_ms: None,
             memory_tracker: None,
         }
     }
@@ -42,8 +42,8 @@ impl RuntimeOptions {
 
     /// Configure an async/await timeout that aborts tasks exceeding `timeout`.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub fn with_async_timeout(mut self, timeout: Duration) -> Self {
-        self.await_timeout = Some(timeout);
+    pub fn with_async_timeout(mut self, timeout_ms: u64) -> Self {
+        self.async_timeout_ms = Some(timeout_ms);
         self
     }
 
@@ -88,6 +88,12 @@ impl MemoryTracker {
         }
     }
 
+    fn record_timeout(&self) {
+        if let Ok(mut stats) = self.inner.lock() {
+            stats.timeouts += 1;
+        }
+    }
+
     /// Return a point-in-time view of collected statistics.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn snapshot(&self) -> MemoryStats {
@@ -107,6 +113,7 @@ pub struct MemoryStats {
     pub unique_constants: HashSet<usize>,
     pub constant_hits: HashMap<usize, usize>,
     pub task_spawns: usize,
+    pub timeouts: usize,
 }
 
 /// Execute a compiled SolvraScript program to completion.
@@ -120,8 +127,17 @@ pub fn run_bytecode(program: SolvraProgram, options: RuntimeOptions) -> SolvraRe
         .map_err(|err| SolvraError::Internal(format!("tokio runtime init failed: {err}")))?;
     let local = LocalSet::new();
     local.block_on(&runtime, async move {
-        let mut executor =
-            RuntimeExecutor::new(Arc::clone(&context), context.program.entry, Vec::new())?;
+        let entry_label = context
+            .program
+            .functions
+            .get(context.program.entry)
+            .map(|func| func.name.clone());
+        let mut executor = RuntimeExecutor::new(
+            Arc::clone(&context),
+            context.program.entry,
+            Vec::new(),
+            entry_label,
+        )?;
         executor.run().await
     })
 }
@@ -142,12 +158,20 @@ impl RuntimeContext {
     }
 }
 
+struct AsyncTask {
+    label: String,
+    handle: JoinHandle<SolvraResult<Value>>,
+    started_at: Instant,
+}
+
 struct RuntimeExecutor {
     ctx: Arc<RuntimeContext>,
     frames: Vec<CallFrame>,
     stack: Vec<Value>,
-    tasks: HashMap<u64, JoinHandle<SolvraResult<Value>>>,
+    tasks: HashMap<u64, AsyncTask>,
     next_task_id: u64,
+    task_label: Option<String>,
+    task_started_at: Instant,
 }
 
 impl RuntimeExecutor {
@@ -155,6 +179,7 @@ impl RuntimeExecutor {
         ctx: Arc<RuntimeContext>,
         function_index: usize,
         args: Vec<Value>,
+        label: Option<String>,
     ) -> SolvraResult<Self> {
         let mut executor = Self {
             ctx,
@@ -162,6 +187,8 @@ impl RuntimeExecutor {
             stack: Vec::new(),
             tasks: HashMap::new(),
             next_task_id: 0,
+            task_label: label,
+            task_started_at: Instant::now(),
         };
         executor
             .call_function(function_index, args)
@@ -172,6 +199,10 @@ impl RuntimeExecutor {
     async fn run(&mut self) -> SolvraResult<Value> {
         self.record_stack_depth();
         loop {
+            if let Some(error) = self.enforce_timeouts() {
+                return Err(error);
+            }
+
             let frame_index = match self.frames.len().checked_sub(1) {
                 Some(index) => index,
                 None => return Ok(Value::Null),
@@ -304,24 +335,34 @@ impl RuntimeExecutor {
                     let task_id_value = self.stack.pop().unwrap_or(Value::Null);
                     let task_id =
                         extract_task_id(task_id_value).map_err(|err| self.enrich_error(err))?;
-                    let handle = self.tasks.remove(&task_id).ok_or_else(|| {
+                    let AsyncTask {
+                        label,
+                        handle,
+                        started_at,
+                    } = self.tasks.remove(&task_id).ok_or_else(|| {
                         self.runtime_exception(format!("await on unknown task {task_id}"))
                     })?;
-                    let join_result = if let Some(limit) = self.ctx.options.await_timeout {
-                        match timeout(limit, handle).await {
-                            Ok(result) => result,
-                            Err(_) => {
-                                return Err(self.runtime_exception(format!(
-                                    "async task {task_id} timed out after {:?}",
-                                    limit
-                                )));
+                    let join_result = if let Some(limit_ms) = self.ctx.options.async_timeout_ms {
+                        let duration = Duration::from_millis(limit_ms);
+                        let handle_fut = handle;
+                        tokio::pin!(handle_fut);
+                        tokio::select! {
+                            res = &mut handle_fut => res,
+                            _ = sleep(duration) => {
+                                handle_fut.as_ref().get_ref().abort();
+                                self.abort_all_tasks();
+                                self.record_timeout_event();
+                                let elapsed_ms = started_at.elapsed().as_millis() as u64;
+                                let error = self.timeout_runtime_exception(&label, elapsed_ms);
+                                self.clear_state();
+                                return Err(error);
                             }
                         }
                     } else {
                         handle.await
                     };
                     let joined = join_result.map_err(|err| {
-                        self.runtime_exception(format!("async task {task_id} panic: {err}"))
+                        self.runtime_exception(format!("async task {label} panic: {err}"))
                     })?;
                     let value = joined.map_err(|err| self.attach_stack(err))?;
                     self.stack.push(value);
@@ -489,21 +530,38 @@ impl RuntimeExecutor {
         function_index: usize,
         args: Vec<Value>,
     ) -> SolvraResult<u64> {
+        let function_label = self
+            .ctx
+            .program
+            .functions
+            .get(function_index)
+            .map(|func| func.name.clone())
+            .unwrap_or_else(|| format!("#{}", function_index));
         let ctx = Arc::clone(&self.ctx);
+        let started_at = Instant::now();
         let task_id = {
             let id = self.next_task_id;
             self.next_task_id += 1;
             id
         };
 
+        let async_label = function_label.clone();
         let handle = tokio::task::spawn_local(async move {
-            let mut executor = RuntimeExecutor::new(ctx, function_index, args)?;
+            let mut executor = RuntimeExecutor::new(ctx, function_index, args, Some(async_label))?;
             match executor.run().await {
                 Ok(value) => Ok(value),
                 Err(err) => Err(executor.enrich_error(err)),
             }
         });
-        self.tasks.insert(task_id, handle);
+        let label = format!("{}#{}", function_label, task_id);
+        self.tasks.insert(
+            task_id,
+            AsyncTask {
+                label,
+                handle,
+                started_at,
+            },
+        );
         self.record_task_spawn();
         Ok(task_id)
     }
@@ -513,6 +571,68 @@ impl RuntimeExecutor {
             message: message.into(),
             stack: self.capture_stack_trace(),
         }
+    }
+
+    fn enforce_timeouts(&mut self) -> Option<SolvraError> {
+        let timeout_ms = self.ctx.options.async_timeout_ms?;
+        let limit = Duration::from_millis(timeout_ms);
+        let now = Instant::now();
+
+        if now.duration_since(self.task_started_at) > limit {
+            let label = self
+                .task_label
+                .clone()
+                .unwrap_or_else(|| "<task>".to_string());
+            self.abort_all_tasks();
+            self.record_timeout_event();
+            let elapsed_ms = now.duration_since(self.task_started_at).as_millis() as u64;
+            let error = self.timeout_runtime_exception(&label, elapsed_ms);
+            self.clear_state();
+            return Some(error);
+        }
+
+        if !self.tasks.is_empty() {
+            let mut timed_out_task: Option<(String, Instant)> = None;
+            for task in self.tasks.values() {
+                if now.duration_since(task.started_at) > limit {
+                    timed_out_task = Some((task.label.clone(), task.started_at));
+                    break;
+                }
+            }
+
+            if let Some((label, started_at)) = timed_out_task {
+                self.abort_all_tasks();
+                self.record_timeout_event();
+                let elapsed_ms = now.duration_since(started_at).as_millis() as u64;
+                let error = self.timeout_runtime_exception(&label, elapsed_ms);
+                self.clear_state();
+                return Some(error);
+            }
+        }
+
+        None
+    }
+
+    fn timeout_runtime_exception(&self, task_label: &str, elapsed_ms: u64) -> SolvraError {
+        SolvraError::RuntimeException {
+            message: format!(
+                "RuntimeException::Timeout {{ task: {task_label}, elapsed_ms: {elapsed_ms} }}"
+            ),
+            stack: self.capture_stack_trace(),
+        }
+    }
+
+    fn abort_all_tasks(&mut self) {
+        for (_, task) in self.tasks.drain() {
+            task.handle.abort();
+        }
+    }
+
+    fn clear_state(&mut self) {
+        self.frames.clear();
+        self.stack.clear();
+        self.tasks.clear();
+        self.record_stack_depth();
     }
 
     fn capture_stack_trace(&self) -> Vec<StackFrame> {
@@ -589,6 +709,12 @@ impl RuntimeExecutor {
     fn record_task_spawn(&self) {
         if let Some(tracker) = &self.ctx.options.memory_tracker {
             tracker.record_task_spawn();
+        }
+    }
+
+    fn record_timeout_event(&self) {
+        if let Some(tracker) = &self.ctx.options.memory_tracker {
+            tracker.record_timeout();
         }
     }
 }
