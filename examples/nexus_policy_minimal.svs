@@ -1,0 +1,23 @@
+let payload = env_get("SOLVRA_NEXUS_EVENTS");
+
+if payload == "" {
+    println("[nexus] no telemetry payload available");
+    env_set("SOLVRA_NEXUS_DECISION", "idle");
+} else {
+    let data = json_parse(payload);
+    let events = data.events;
+    let count = len(events);
+    println("[nexus] telemetry batch size = " + count);
+
+    if count > 0 {
+        let first = events[0];
+        let label = "unknown";
+        if first.label != null {
+            label = first.label;
+        }
+        let summary = "observed " + first.type + "@" + label;
+        env_set("SOLVRA_NEXUS_DECISION", summary);
+    } else {
+        env_set("SOLVRA_NEXUS_DECISION", "idle");
+    }
+}

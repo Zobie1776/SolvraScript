@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use tokio::task::{JoinHandle, LocalSet};
 use tokio::time::sleep;
 
-use solvra_core::concurrency::executor::TaskExecutor;
+use solvra_core::concurrency::executor::{TaskExecutor, TaskHandle};
 use solvra_core::vm::bytecode::{VmBytecode, VmConstant};
 use solvra_core::vm::instruction::{Instruction, Opcode};
 use solvra_core::{SolvraError, SolvraResult, StackFrame, Value};
@@ -239,6 +239,7 @@ struct AsyncTask {
     handle: JoinHandle<SolvraResult<Value>>,
     started_at: Instant,
     core_completion: Arc<AtomicBool>,
+    core_task: TaskHandle,
 }
 
 struct RuntimeExecutor {
@@ -438,6 +439,7 @@ impl RuntimeExecutor {
                         handle,
                         started_at,
                         core_completion,
+                        core_task,
                     } = self.tasks.remove(&task_id).ok_or_else(|| {
                         self.runtime_exception(format!("await on unknown task {task_id}"))
                     })?;
@@ -452,7 +454,9 @@ impl RuntimeExecutor {
                             Some(started_at.elapsed().as_millis() as u64),
                             self.ctx.options.async_timeout_ms,
                         );
+                        core_task.cancel();
                         core_completion.store(true, Ordering::SeqCst);
+                        core_task.wait();
                         let error = self.cancellation_runtime_exception(&label);
                         self.clear_state();
                         return Err(error);
@@ -472,6 +476,9 @@ impl RuntimeExecutor {
                                 );
                                 self.record_timeout_event(self.stack.len());
                                 let elapsed_ms = now.duration_since(started_at).as_millis() as u64;
+                                core_task.cancel();
+                                core_completion.store(true, Ordering::SeqCst);
+                                core_task.wait();
                                 let error = self.timeout_runtime_exception(&label, elapsed_ms);
                                 self.clear_state();
                                 return Err(error);
@@ -493,7 +500,9 @@ impl RuntimeExecutor {
                                     );
                                     self.record_timeout_event(self.stack.len());
                                     let elapsed_ms = started_at.elapsed().as_millis() as u64;
+                                    core_task.cancel();
                                     core_completion.store(true, Ordering::SeqCst);
+                                    core_task.wait();
                                     let error = self.timeout_runtime_exception(&label, elapsed_ms);
                                     self.clear_state();
                                     return Err(error);
@@ -504,6 +513,7 @@ impl RuntimeExecutor {
                         };
                     self.async_control.complete(task_id);
                     core_completion.store(true, Ordering::SeqCst);
+                    core_task.wait();
                     match join_result {
                         Ok(inner) => match inner {
                             Ok(value) => {
@@ -720,11 +730,19 @@ impl RuntimeExecutor {
         async_control.register(task_id);
         let completion_flag = Arc::new(AtomicBool::new(false));
         let completion_clone = completion_flag.clone();
-        self.ctx.options.executor.spawn(move || {
-            while !completion_clone.load(Ordering::SeqCst) {
-                thread::sleep(Duration::from_millis(1));
-            }
-        });
+        let watchdog_label = format!("task-watchdog#{task_id}");
+        let core_task = self
+            .ctx
+            .options
+            .executor
+            .spawn_with(Some(watchdog_label), move |ctx| {
+                while !completion_clone.load(Ordering::SeqCst) {
+                    if ctx.is_cancelled() {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(1));
+                }
+            });
 
         let ctx = Arc::clone(&self.ctx);
         let label = format!("{}#{}", function_label, task_id);
@@ -755,6 +773,7 @@ impl RuntimeExecutor {
                 handle,
                 started_at,
                 core_completion: completion_flag,
+                core_task,
             },
         );
         self.emit_telemetry_event(
@@ -917,7 +936,9 @@ impl RuntimeExecutor {
         for (task_id, task) in self.tasks.drain() {
             task.handle.abort();
             self.async_control.complete(task_id);
+            task.core_task.cancel();
             task.core_completion.store(true, Ordering::SeqCst);
+            task.core_task.wait();
         }
     }
 
