@@ -1,3 +1,14 @@
+//=====================================================
+// File: tokenizer.rs
+//=====================================================
+// Author: ZobieLabs
+// License: Duality Public License (DPL v1.0)
+// Goal: SolvraScript lexical analyzer
+// Objective: Tokenize SolvraScript source code into token streams
+//            for parser consumption with position tracking
+//=====================================================
+
+// Added by Claude for Zobie.format compliance
 use std::collections::HashMap;
 use std::fmt;
 
@@ -91,6 +102,7 @@ pub enum TokenKind {
     Comma,
     Semicolon,
     Colon,
+    DoubleColon,
     Arrow,
     Dot,
 
@@ -125,6 +137,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Comment(s) => write!(f, "// {}", s),
             TokenKind::StringTemplate(s) => write!(f, "`{}`", s),
             TokenKind::Pipe => write!(f, "|"),
+            TokenKind::DoubleColon => write!(f, "::"),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -718,7 +731,14 @@ impl Tokenizer {
             ']' => TokenKind::RightBracket,
             ',' => TokenKind::Comma,
             ';' => TokenKind::Semicolon,
-            ':' => TokenKind::Colon,
+            ':' => {
+                if self.current_char() == ':' {
+                    self.advance();
+                    TokenKind::DoubleColon
+                } else {
+                    TokenKind::Colon
+                }
+            }
             '.' => TokenKind::Dot,
             _ => return Err(format!("Unexpected character: {}", ch)),
         };
@@ -910,6 +930,23 @@ print("Result: ${x}");"#;
     }
 
     #[test]
+    fn test_double_colon_token() {
+        let mut tokenizer = Tokenizer::new("module::item;");
+        let tokens = tokenizer.tokenize().expect("tokenize");
+        let kinds: Vec<TokenKind> = tokens.into_iter().map(|t| t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::Identifier("module".into()),
+                TokenKind::DoubleColon,
+                TokenKind::Identifier("item".into()),
+                TokenKind::Semicolon,
+                TokenKind::Eof
+            ]
+        );
+    }
+
+    #[test]
     fn test_single_quote_string_rejected() {
         let mut tokenizer = Tokenizer::new("'oops'");
         let error = tokenizer.tokenize().unwrap_err();
@@ -977,3 +1014,8 @@ print("Result: ${x}");"#;
         assert_eq!(punctuation.get_str(), None);
     }
 }
+
+//=====================================================
+// End of file
+//=====================================================
+// Added by Claude for Zobie.format compliance

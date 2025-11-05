@@ -1,9 +1,21 @@
+//=====================================================
+// File: main.rs
+//=====================================================
+// Author: ZobieLabs
+// License: Duality Public License (DPL v1.0)
+// Goal: SolvraScript CLI entry point
+// Objective: Command-line interface for executing .svs source files and .svc bytecode,
+//            with support for AST printing, telemetry, and runtime options
+//=====================================================
+
+// Added by Claude for Zobie.format compliance
 mod ast;
 mod core_bridge;
 mod interpreter;
 mod modules;
 mod parser;
 mod platform;
+mod stdlib_registry;
 mod tokenizer;
 mod vm;
 
@@ -266,3 +278,8 @@ fn format_stack_frame(frame: &StackFrame) -> String {
         frame.function.clone()
     }
 }
+
+//=====================================================
+// End of file
+//=====================================================
+// Added by Claude for Zobie.format compliance

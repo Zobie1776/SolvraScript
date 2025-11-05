@@ -1,3 +1,14 @@
+//=====================================================
+// File: ast.rs
+//=====================================================
+// Author: ZobieLabs
+// License: Duality Public License (DPL v1.0)
+// Goal: SolvraScript Abstract Syntax Tree definitions
+// Objective: Define AST node types for programs, statements, expressions,
+//            patterns, and type annotations in SolvraScript
+//=====================================================
+
+// Added by Claude for Zobie.format compliance
 #![allow(dead_code)]
 
 use crate::tokenizer::Position;
@@ -1649,3 +1660,8 @@ impl std::error::Error for AstError {}
 
 /// Result type for AST operations
 pub type AstResult<T> = Result<T, AstError>;
+
+//=====================================================
+// End of file
+//=====================================================
+// Added by Claude for Zobie.format compliance
