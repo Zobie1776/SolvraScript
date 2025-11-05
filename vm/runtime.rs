@@ -1102,6 +1102,11 @@ fn build_list_string(stack: &mut Vec<Value>, count: usize) -> SolvraResult<Strin
 }
 
 fn execute_arithmetic(opcode: Opcode, lhs: Value, rhs: Value) -> SolvraResult<Value> {
+    if opcode == Opcode::Add {
+        if let Some(result) = string_add(&lhs, &rhs) {
+            return Ok(Value::String(result));
+        }
+    }
     match (lhs, rhs) {
         (Value::Integer(a), Value::Integer(b)) => execute_integer_arithmetic(opcode, a, b),
         (Value::Float(a), Value::Float(b)) => execute_float_arithmetic(opcode, a, b),
@@ -1116,6 +1121,27 @@ fn execute_arithmetic(opcode: Opcode, lhs: Value, rhs: Value) -> SolvraResult<Va
         other => Err(SolvraError::Internal(format!(
             "unsupported operands for arithmetic: {other:?}"
         ))),
+    }
+}
+
+fn string_add(lhs: &Value, rhs: &Value) -> Option<String> {
+    match (lhs, rhs) {
+        (Value::String(left), Value::String(right)) => {
+            let mut result = left.clone();
+            result.push_str(right);
+            Some(result)
+        }
+        (Value::String(left), other) => {
+            let mut result = left.clone();
+            result.push_str(&value_to_string(other));
+            Some(result)
+        }
+        (other, Value::String(right)) => {
+            let mut result = value_to_string(other);
+            result.push_str(right);
+            Some(result)
+        }
+        _ => None,
     }
 }
 

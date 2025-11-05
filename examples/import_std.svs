@@ -1,0 +1,39 @@
+//==================================================
+// File: examples/import_std.svs
+//==================================================
+// Author: ZobieLabs
+// License: Apache License 2.0
+// Goal: Demonstrate mixed stdlib and script imports after modularisation
+// Objective: Show <module> syntax working alongside relative scripts
+//==================================================
+
+//==================================================
+// Section 1.0 - Imports
+//==================================================
+// @TODO[StdlibPhase3]: Add fs/net examples when those modules stabilise.
+// @ZNOTE[StdlibDemo]: Combines stdlib math/string/io with legacy script helpers.
+
+import <io>;
+import <math>;
+import <time>;
+import <json>;
+import <string>;
+
+fn main() {
+    io.println("Import demo running...");
+
+    let pi_half = math.sin(1.5707963);
+    io.print("pi-ish: ");
+    io.println(string.to_string(pi_half));
+
+    let squared = math.pow(5, 2);
+    io.println("square of 5 -> " + string.to_string(squared));
+
+    let stamp = time.time();
+    io.println("timestamp -> " + string.to_string(stamp));
+
+    let parsed = json.parse("{\"module\":\"std\"}");
+    io.println("json module -> " + parsed["module"]);
+}
+
+main();

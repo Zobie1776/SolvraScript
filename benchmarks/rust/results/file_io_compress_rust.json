@@ -1,0 +1,11 @@
+{
+  "benchmark": "file_io_compress",
+  "language": "rust",
+  "execution_time_ms": 0.0,
+  "memory_usage_mb": 0.0,
+  "cpu_utilization_pct": 0.0,
+  "accuracy_delta_pct": 0.0,
+  "latency_ms": 0.0,
+  "throughput_ops": 0.0,
+  "timestamp": "2025-11-03T02:14:34Z"
+}

@@ -1,0 +1,27 @@
+//==================================================
+// File: tests/stdlib/use_std_string.svs
+//==================================================
+// Author: ZobieLabs
+// License: Apache License 2.0
+// Goal: Validate <string> stdlib helpers for len/parse/to_string
+// Objective: Confirm wrappers behave like legacy builtins
+//==================================================
+
+//==================================================
+// Section 1.0 - Scenario
+//==================================================
+// @TODO[StdlibPhase2]: Extend assertions once format/replace helpers land.
+// @ZNOTE[StdlibTest]: Uses trimmed parsing to mirror interpreter semantics.
+
+import <string>;
+
+fn run() {
+    let sample = " 42 ";
+    let parsed = string.parse_int(sample, 10);
+    let formatted = string.to_string(parsed);
+    let length_ok = string.len("hello") == 5;
+    return length_ok && parsed == 42 && formatted == "42";
+}
+
+run();
+

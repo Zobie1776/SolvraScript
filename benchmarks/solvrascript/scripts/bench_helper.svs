@@ -1,0 +1,38 @@
+//=============================================
+// File: solvra_script/benchmarks/solvrascript/scripts/bench_helper.svs
+//=============================================
+// Author: ZobieLabs
+// License: Proprietary — Solvra Systems LLC
+// Goal: Provide helper routines for SolvraScript benchmark stubs.
+// Objective: Simulate timing and capture placeholder metrics until native APIs land.
+//=============================================
+
+//=============================================
+// Imports & Modules
+//=============================================
+import <vector>;
+
+//=============================================
+// Section 1.0 — Metric Builder
+//=============================================
+fn build_metric(name, duration_ms) {
+    let mut metric = vector.make();
+    metric = vector.append(metric, name);
+    metric = vector.append(metric, duration_ms);
+    return metric;
+}
+
+fn format_metric(metric) {
+    let name = metric[0];
+    let duration = metric[1];
+    return "{" + name + ":" + to_string(duration) + "}";
+}
+
+//=============================================
+// End summary and next steps
+// @TODO: Replace stub helpers with real SolvraScript timing utilities.
+//=============================================
+
+//=============================================
+// End of file
+//=============================================

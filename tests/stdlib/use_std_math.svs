@@ -1,0 +1,29 @@
+//==================================================
+// File: tests/stdlib/use_std_math.svs
+//==================================================
+// Author: ZobieLabs
+// License: Apache License 2.0
+// Goal: Validate <math> stdlib wiring for basic numeric helpers
+// Objective: Confirm sqrt/pow/trig/min/max mirror legacy behaviour
+//==================================================
+
+//==================================================
+// Section 1.0 - Scenario
+//==================================================
+// @TODO[StdlibPhase2]: Cover tan/random once advanced ops migrate.
+// @ZNOTE[StdlibTest]: Comparisons tolerate float outputs identical to legacy runtime.
+
+import <math>;
+
+fn run() {
+    let root = math.sqrt(9);
+    let power = math.pow(2, 3);
+    let sine = math.sin(0);
+    let cosine = math.cos(0);
+    let min_val = math.min(7, 3);
+    let max_val = math.max(7, 3);
+    return root == 3.0 && power == 8.0 && math.abs(sine) == 0.0 && cosine == 1.0 && min_val == 3 && max_val == 7;
+}
+
+run();
+

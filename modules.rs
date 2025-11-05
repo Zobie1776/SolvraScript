@@ -3,6 +3,7 @@
 use crate::ast::{ExportItem, ImportSource, Program, Stmt};
 use crate::interpreter::Value;
 use crate::parser::{ParseError, Parser};
+use crate::stdlib_registry::{StdlibContext, StdlibRegistry};
 use crate::tokenizer::Tokenizer;
 use crate::vm::compiler;
 use std::collections::{HashMap, HashSet};
@@ -124,6 +125,7 @@ pub struct ModuleLoader {
     script_paths: Vec<PathBuf>,
     stdlib_paths: Vec<PathBuf>,
     compiled_paths: Vec<PathBuf>,
+    stdlib: StdlibContext,
     cache: HashMap<String, ModuleCacheEntry>,
     loading: HashSet<String>,
     cache_dir: PathBuf,
@@ -140,6 +142,9 @@ impl ModuleLoader {
     pub fn new() -> Self {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let stdlib_root = manifest_dir.join("lib").join("std");
+        let stdlib_registry = StdlibRegistry::with_defaults(&stdlib_root);
+        let stdlib = StdlibContext::new(stdlib_registry);
         let cache_dir = manifest_dir
             .parent()
             .map(|parent| parent.join("target/solvra_modules"))
@@ -153,8 +158,13 @@ impl ModuleLoader {
         let hot_reload = GLOBAL_HOT_RELOAD.load(Ordering::Relaxed) || env_hot_reload;
         Self {
             script_paths: vec![current_dir.clone()],
-            stdlib_paths: vec![manifest_dir.join("stdlib")],
-            compiled_paths: vec![manifest_dir.join("stdlib"), cache_dir.clone()],
+            stdlib_paths: vec![stdlib_root.clone(), manifest_dir.join("stdlib")],
+            compiled_paths: vec![
+                stdlib_root.clone(),
+                manifest_dir.join("stdlib"),
+                cache_dir.clone(),
+            ],
+            stdlib,
             cache: HashMap::new(),
             loading: HashSet::new(),
             cache_dir,
@@ -333,12 +343,42 @@ impl ModuleLoader {
     }
 
     fn load_standard_descriptor(
-        &self,
+        &mut self,
         source: ImportSource,
         name: &str,
     ) -> Result<ModuleDescriptor, ModuleError> {
-        let module_path = Self::normalise_module_name(name);
         let module_id = format!("std::{name}");
+        if let Some(script_path) = self.stdlib.resolve(name) {
+            let parsed = self.parse_script(&script_path)?;
+            let fingerprint = Self::compute_fingerprint(&parsed.source);
+            let declared_exports = self.collect_declared_exports(&parsed.program);
+            let compiled = self.compile_script_if_needed(
+                &module_id,
+                &script_path,
+                &parsed.program,
+                &fingerprint,
+            )?;
+            let base_dir = script_path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."));
+            let origin_path = PathBuf::from(&script_path);
+            return Ok(ModuleDescriptor {
+                id: module_id.clone(),
+                source,
+                origin: ModuleOrigin::Standard(origin_path.clone()),
+                artifact: ModuleArtifact::Script {
+                    program: parsed.program,
+                    path: origin_path,
+                    fingerprint,
+                    compiled,
+                },
+                base_dir,
+                declared_exports,
+            });
+        }
+
+        let module_path = Self::normalise_module_name(name);
         for std_path in &self.stdlib_paths {
             let base = std_path.join(&module_path);
             for ext in ["svc", "nvc"] {

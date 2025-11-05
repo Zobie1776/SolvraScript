@@ -1,0 +1,335 @@
+//=====================================================
+// File: ecs.svs
+//=====================================================
+// Author: Zachariah Obie
+// License: Apache License 2.0
+// Goal: Provide Entity-Component-System architecture for game development
+// Objective: Implement ECS pattern with entities, components, systems, and queries
+//            for composable game object design. Pure SolvraScript implementation.
+//=====================================================
+
+//=====================================================
+// Import & Modules
+//=====================================================
+// No imports - this is a pure SolvraScript module
+
+//=====================================================
+// Section 1.0: World Management
+//=====================================================
+
+fn create_world() {
+    //  Create a new ECS world
+    //  Returns: World - {entities: map, components: map, systems: [System], next_id: int}
+
+    return {
+        "entities": {},         //  Map of entity_id -> list of component types
+        "components": {},       //  Map of entity_id -> map of component_type -> component_data
+        "systems": [],          //  List of registered systems
+        "next_id": 1            //  Next entity ID to allocate
+    };
+}
+
+/*---------------------------------------------------------------------------
+
+ECS World Structure:
+The world is the central data structure that holds all entities, components,
+and systems. It uses maps for O(1) lookups and maintains stable entity IDs.
+
+Internal structure:
+- entities: {entity_id: [component_types]}
+- components: {entity_id: {component_type: data}}
+- systems: [{name, components, fn}]
+- next_id: Sequential entity ID counter
+
+This design prioritizes simplicity over performance. For production use,
+consider cache-friendly memory layouts (e.g., archetype-based storage).
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 2.0: Entity Management
+//=====================================================
+
+fn create_entity(world) {
+    //  Create a new entity in the world
+    //  world: World - ECS world
+    //  Returns: EntityID (int)
+
+    let entity_id = world["next_id"];
+    world["next_id"] = entity_id + 1;
+
+    //  Initialize entity with empty component list
+    world["entities"][entity_id] = [];
+    world["components"][entity_id] = {};
+
+    return entity_id;
+}
+
+fn destroy_entity(world, entity) {
+    //  Destroy an entity and all its components
+    //  world: World - ECS world
+    //  entity: EntityID - Entity to destroy
+
+    if (!has_key(world["entities"], entity)) {
+        error("Entity " + str(entity) + " not found");
+    }
+
+    //  Remove all components
+    delete_key(world["entities"], entity);
+    delete_key(world["components"], entity);
+}
+
+/*---------------------------------------------------------------------------
+
+Entity Lifecycle:
+Entities are lightweight integer IDs. All state is stored in components.
+
+Entity creation:
+1. Allocate new ID (sequential)
+2. Initialize empty component lists
+3. Return ID to user
+
+Entity destruction:
+1. Remove from entities map
+2. Remove from components map
+3. Systems will no longer match this entity
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 3.0: Component Management
+//=====================================================
+
+fn add_component(world, entity, type, data) {
+    //  Add a component to an entity
+    //  world: World - ECS world
+    //  entity: EntityID - Target entity
+    //  type: string - Component type name
+    //  data: map - Component data
+
+    if (!has_key(world["entities"], entity)) {
+        error("Entity " + str(entity) + " not found");
+    }
+
+    //  Add component type to entity's component list
+    let component_types = world["entities"][entity];
+    push(component_types, type);
+
+    //  Store component data
+    world["components"][entity][type] = data;
+}
+
+fn get_component(world, entity, type) {
+    //  Get a component from an entity
+    //  world: World - ECS world
+    //  entity: EntityID - Target entity
+    //  type: string - Component type name
+    //  Returns: map - Component data
+
+    if (!has_key(world["entities"], entity)) {
+        error("Entity " + str(entity) + " not found");
+    }
+
+    if (!has_key(world["components"][entity], type)) {
+        error("Entity " + str(entity) + " does not have component: " + type);
+    }
+
+    return world["components"][entity][type];
+}
+
+fn remove_component(world, entity, type) {
+    //  Remove a component from an entity
+    //  world: World - ECS world
+    //  entity: EntityID - Target entity
+    //  type: string - Component type name
+
+    if (!has_key(world["entities"], entity)) {
+        error("Entity " + str(entity) + " not found");
+    }
+
+    //  Remove from component types list
+    let component_types = world["entities"][entity];
+    let new_types = [];
+    for (let t in component_types) {
+        if (t != type) {
+            push(new_types, t);
+        }
+    }
+    world["entities"][entity] = new_types;
+
+    //  Remove component data
+    delete_key(world["components"][entity], type);
+}
+
+fn has_component(world, entity, type) {
+    //  Check if an entity has a component
+    //  world: World - ECS world
+    //  entity: EntityID - Target entity
+    //  type: string - Component type name
+    //  Returns: bool
+
+    if (!has_key(world["entities"], entity)) {
+        return false;
+    }
+
+    return has_key(world["components"][entity], type);
+}
+
+/*---------------------------------------------------------------------------
+
+Component Storage:
+Components are stored as plain maps (key-value pairs). This provides maximum
+flexibility but requires discipline in component design.
+
+Best practices:
+- Keep components small and focused (Single Responsibility)
+- Use primitive types (int, float, string) when possible
+- Avoid storing functions in components (logic goes in systems)
+
+Example components:
+  Position: {x: 100, y: 200}
+  Velocity: {vx: 5, vy: -3}
+  Health: {current: 80, max: 100}
+
+Component data is mutable - systems can modify it directly via get_component().
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 4.0: Entity Queries
+//=====================================================
+
+fn query(world, components) {
+    //  Query entities that have all specified components
+    //  world: World - ECS world
+    //  components: [string] - List of required component types
+    //  Returns: [EntityID] - List of matching entities
+
+    let results = [];
+
+    //  Iterate over all entities
+    let entity_ids = keys(world["entities"]);
+    for (let entity in entity_ids) {
+        let matches = true;
+
+        //  Check if entity has all required components
+        for (let comp_type in components) {
+            if (!has_component(world, entity, comp_type)) {
+                matches = false;
+                break;
+            }
+        }
+
+        if (matches) {
+            push(results, entity);
+        }
+    }
+
+    return results;
+}
+
+/*---------------------------------------------------------------------------
+
+Query System:
+The query function performs a linear scan over all entities to find matches.
+This is simple but can be slow for large worlds (>10,000 entities).
+
+Optimization strategies for Phase 2:
+1. Maintain query caches (invalidate on component add/remove)
+2. Use archetype-based storage (group entities by component signature)
+3. Implement sparse sets for fast iteration
+
+For now, simplicity is prioritized. Most games have <1,000 entities.
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 5.0: System Management
+//=====================================================
+
+fn register_system(world, name, components, fn) {
+    //  Register a system that processes entities
+    //  world: World - ECS world
+    //  name: string - System name (for debugging)
+    //  components: [string] - Required component types
+    //  fn: function(world, entity, delta_ms) - System update function
+
+    let system = {
+        "name": name,
+        "components": components,
+        "fn": fn
+    };
+
+    push(world["systems"], system);
+}
+
+fn run_systems(world, delta_ms) {
+    //  Execute all registered systems
+    //  world: World - ECS world
+    //  delta_ms: int - Time delta in milliseconds
+
+    for (let system in world["systems"]) {
+        //  Query entities that match system's component requirements
+        let entities = query(world, system["components"]);
+
+        //  Execute system function for each matching entity
+        for (let entity in entities) {
+            system["fn"](world, entity, delta_ms);
+        }
+    }
+}
+
+/*---------------------------------------------------------------------------
+
+System Execution:
+Systems are functions that operate on entities with specific components.
+They are executed in registration order every frame.
+
+System function signature:
+  fn(world: World, entity: EntityID, delta_ms: int) -> void
+
+Systems should:
+1. Get required components via get_component()
+2. Perform logic (movement, collision, rendering, etc.)
+3. Modify component data directly (maps are passed by reference)
+
+Example system:
+  register_system(world, "movement", ["position", "velocity"], fn(world, entity, delta_ms) {
+      let pos = get_component(world, entity, "position");
+      let vel = get_component(world, entity, "velocity");
+
+      pos["x"] = pos["x"] + vel["vx"] * (delta_ms / 1000.0);
+      pos["y"] = pos["y"] + vel["vy"] * (delta_ms / 1000.0);
+  });
+
+Systems run every frame via run_systems(world, delta_ms).
+
+*/---------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------
+//  End of ecs.svs
+//  This module provides a complete Entity-Component-System implementation
+//  in pure SolvraScript. No host bridge functions required.
+//
+//  @TODO Phase 1:
+//  - Add system priority/ordering
+//  - Implement query caching for performance
+//  - Add component type validation
+//  - Implement entity pooling (recycle IDs)
+//
+//  @TODO Phase 2:
+//  - Archetype-based storage for better cache locality
+//  - Parallel system execution
+//  - Component change detection
+//
+//  @ZNOTES:
+//  - Entity IDs are sequential integers starting from 1
+//  - Components are plain maps (no type safety)
+//  - Systems execute in registration order
+//  - Queries are computed on-demand (no caching yet)
+//  - This implementation prioritizes simplicity over performance
+//---------------------------------------------------------------------------
+
+//=====================================================
+// End of file
+//=====================================================

@@ -1,0 +1,235 @@
+//=====================================================
+// File: game_ecs_pong.svs
+//=====================================================
+// Author: Zachariah Obie
+// License: Apache License 2.0
+// Goal: Demonstrate ECS pattern with minimal Pong game
+// Objective: Show how to use <game/ecs> for game entity management
+//=====================================================
+
+//=====================================================
+// Import & Modules
+//=====================================================
+import { create_world, create_entity, add_component, get_component, query, register_system, run_systems } from <game/ecs>;
+
+//=====================================================
+// Section 1.0: Entity Creation
+//=====================================================
+
+fn create_paddle(world, x, y, name) {
+    //  Create paddle entity with position and velocity
+    let paddle = create_entity(world);
+
+    add_component(world, paddle, "position", {
+        "x": x,
+        "y": y
+    });
+
+    add_component(world, paddle, "velocity", {
+        "vx": 0,
+        "vy": 0
+    });
+
+    add_component(world, paddle, "paddle", {
+        "width": 10,
+        "height": 60,
+        "speed": 300,  //  Pixels per second
+        "name": name
+    });
+
+    return paddle;
+}
+
+fn create_ball(world, x, y) {
+    //  Create ball entity with position and velocity
+    let ball = create_entity(world);
+
+    add_component(world, ball, "position", {
+        "x": x,
+        "y": y
+    });
+
+    add_component(world, ball, "velocity", {
+        "vx": 200,  //  Initial velocity
+        "vy": 150
+    });
+
+    add_component(world, ball, "ball", {
+        "radius": 8
+    });
+
+    return ball;
+}
+
+//=====================================================
+// Section 2.0: Game Systems
+//=====================================================
+
+fn register_movement_system(world) {
+    //  System: Update entity positions based on velocity
+    register_system(world, "movement", ["position", "velocity"], fn(world, entity, delta_ms) {
+        let pos = get_component(world, entity, "position");
+        let vel = get_component(world, entity, "velocity");
+
+        //  Update position: p = p + v * dt
+        let dt = delta_ms / 1000.0;  //  Convert to seconds
+        pos["x"] = pos["x"] + vel["vx"] * dt;
+        pos["y"] = pos["y"] + vel["vy"] * dt;
+    });
+}
+
+fn register_ball_collision_system(world) {
+    //  System: Bounce ball off top/bottom walls
+    register_system(world, "ball_collision", ["position", "ball"], fn(world, entity, delta_ms) {
+        let pos = get_component(world, entity, "position");
+        let ball = get_component(world, entity, "ball");
+        let vel = get_component(world, entity, "velocity");
+
+        let screen_height = 480;
+
+        //  Bounce off top wall
+        if (pos["y"] - ball["radius"] < 0) {
+            pos["y"] = ball["radius"];
+            vel["vy"] = -vel["vy"];
+            println("Ball bounce: top wall");
+        }
+
+        //  Bounce off bottom wall
+        if (pos["y"] + ball["radius"] > screen_height) {
+            pos["y"] = screen_height - ball["radius"];
+            vel["vy"] = -vel["vy"];
+            println("Ball bounce: bottom wall");
+        }
+    });
+}
+
+fn register_paddle_bounds_system(world) {
+    //  System: Keep paddles within screen bounds
+    register_system(world, "paddle_bounds", ["position", "paddle"], fn(world, entity, delta_ms) {
+        let pos = get_component(world, entity, "position");
+        let paddle = get_component(world, entity, "paddle");
+
+        let screen_height = 480;
+
+        //  Clamp to screen bounds
+        if (pos["y"] < 0) {
+            pos["y"] = 0;
+        }
+        if (pos["y"] + paddle["height"] > screen_height) {
+            pos["y"] = screen_height - paddle["height"];
+        }
+    });
+}
+
+//=====================================================
+// Section 3.0: Game Loop
+//=====================================================
+
+fn simulate_game(world, num_frames) {
+    //  Simulate game for N frames (for demonstration)
+    let delta_ms = 16;  //  ~60 FPS
+
+    for (let frame = 0; frame < num_frames; frame = frame + 1) {
+        //  Run all systems
+        run_systems(world, delta_ms);
+
+        //  Print game state every 60 frames (1 second)
+        if (frame % 60 == 0) {
+            print_game_state(world);
+        }
+    }
+}
+
+fn print_game_state(world) {
+    //  Print positions of all entities
+    println("");
+    println("=== Game State ===");
+
+    //  Print paddle positions
+    let paddles = query(world, ["position", "paddle"]);
+    for (let paddle_id in paddles) {
+        let pos = get_component(world, paddle_id, "position");
+        let paddle = get_component(world, paddle_id, "paddle");
+        println(paddle["name"] + " at (" + str(int(pos["x"])) + ", " + str(int(pos["y"])) + ")");
+    }
+
+    //  Print ball position
+    let balls = query(world, ["position", "ball"]);
+    for (let ball_id in balls) {
+        let pos = get_component(world, ball_id, "position");
+        println("Ball at (" + str(int(pos["x"])) + ", " + str(int(pos["y"])) + ")");
+    }
+}
+
+//=====================================================
+// Section 4.0: Main Game
+//=====================================================
+
+fn main() {
+    println("ECS Pong Demo");
+    println("=============");
+    println("");
+
+    //  Create ECS world
+    let world = create_world();
+
+    //  Create entities
+    let player1 = create_paddle(world, 20, 210, "Player 1");
+    let player2 = create_paddle(world, 620, 210, "Player 2");
+    let ball = create_ball(world, 320, 240);
+
+    //  Register systems
+    register_movement_system(world);
+    register_ball_collision_system(world);
+    register_paddle_bounds_system(world);
+
+    //  Simulate game for 3 seconds (180 frames @ 60 FPS)
+    simulate_game(world, 180);
+
+    println("");
+    println("Simulation complete!");
+}
+
+//  Run game
+main();
+
+/*---------------------------------------------------------------------------
+
+Example Output:
+  ECS Pong Demo
+  =============
+
+  === Game State ===
+  Player 1 at (20, 210)
+  Player 2 at (620, 210)
+  Ball at (320, 240)
+
+  Ball bounce: top wall
+  Ball bounce: bottom wall
+
+  === Game State ===
+  Player 1 at (20, 210)
+  Player 2 at (620, 210)
+  Ball at (520, 380)
+
+  Simulation complete!
+
+ECS Benefits Demonstrated:
+1. Entities are just IDs (lightweight)
+2. Components are pure data (position, velocity, paddle)
+3. Systems contain all logic (movement, collision, bounds)
+4. Easy to add new features (add component + system)
+5. No inheritance hierarchy (composition over inheritance)
+
+Next Steps:
+1. Add input handling (<game/input>) for player control
+2. Add rendering (<game/sprite> or <gfx/2d>)
+3. Add paddle-ball collision detection
+4. Add scoring system
+5. Add AI for single-player mode
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// End of file
+//=====================================================

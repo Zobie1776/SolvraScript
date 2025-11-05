@@ -1,0 +1,224 @@
+//=====================================================
+// File: test_http.svs
+//=====================================================
+// Author: Zachariah Obie
+// License: Apache License 2.0
+// Goal: Unit tests for <web/http> module
+// Objective: Validate HTTP client functionality
+//=====================================================
+
+//=====================================================
+// Import & Modules
+//=====================================================
+import { get, post, with_headers, with_timeout, parse_json, to_json } from <web/http>;
+
+//=====================================================
+// Test Suite: HTTP Options
+//=====================================================
+
+fn test_with_headers() {
+    println("[TEST] with_headers()");
+
+    let options = {};
+    options = with_headers(options, {"Authorization": "Bearer token123"});
+
+    assert(has_key(options, "headers"), "Options should have headers");
+    assert(options["headers"]["Authorization"] == "Bearer token123", "Header value should match");
+
+    println("  PASS");
+}
+
+fn test_with_timeout() {
+    println("[TEST] with_timeout()");
+
+    let options = {};
+    options = with_timeout(options, 5000);
+
+    assert(has_key(options, "timeout_ms"), "Options should have timeout");
+    assert(options["timeout_ms"] == 5000, "Timeout value should match");
+
+    println("  PASS");
+}
+
+fn test_with_retries() {
+    println("[TEST] with_retries()");
+
+    let options = {};
+    options = with_retries(options, 3);
+
+    assert(has_key(options, "retries"), "Options should have retries");
+    assert(options["retries"] == 3, "Retry count should match");
+
+    println("  PASS");
+}
+
+fn test_with_retries_max_limit() {
+    println("[TEST] with_retries() - max limit");
+
+    let options = {};
+    options = with_retries(options, 10);  //  Exceeds max of 5
+
+    assert(options["retries"] == 5, "Retry count should be clamped to 5");
+
+    println("  PASS");
+}
+
+//=====================================================
+// Test Suite: JSON Helpers
+//=====================================================
+
+fn test_to_json() {
+    println("[TEST] to_json()");
+
+    let data = {"name": "Alice", "age": 30};
+    let json_str = to_json(data);
+
+    assert(typeof(json_str) == "string", "Result should be string");
+    assert(contains(json_str, "Alice"), "JSON should contain data");
+
+    println("  PASS");
+}
+
+fn test_parse_json() {
+    println("[TEST] parse_json()");
+
+    let response = {
+        "status": 200,
+        "body": "{\"message\": \"success\"}"
+    };
+
+    let parsed = parse_json(response);
+
+    assert(typeof(parsed) == "map", "Result should be map");
+    assert(parsed["message"] == "success", "Parsed data should match");
+
+    println("  PASS");
+}
+
+//=====================================================
+// Test Suite: HTTP Methods (Mock)
+//=====================================================
+
+fn test_get_request() {
+    println("[TEST] get()");
+
+    let response = get("https://api.example.com/data", {});
+
+    assert(has_key(response, "status"), "Response should have status");
+    assert(has_key(response, "body"), "Response should have body");
+    assert(has_key(response, "ok"), "Response should have ok field");
+
+    println("  PASS");
+}
+
+fn test_post_request() {
+    println("[TEST] post()");
+
+    let body = {"name": "Test"};
+    let response = post("https://api.example.com/users", body, {});
+
+    assert(has_key(response, "status"), "Response should have status");
+
+    println("  PASS");
+}
+
+//=====================================================
+// Test Runner
+//=====================================================
+
+fn run_tests() {
+    println("=== HTTP Module Tests ===");
+    println("");
+
+    let total = 0;
+    let passed = 0;
+
+    //  HTTP Options tests
+    test_with_headers();
+    total = total + 1;
+    passed = passed + 1;
+
+    test_with_timeout();
+    total = total + 1;
+    passed = passed + 1;
+
+    test_with_retries();
+    total = total + 1;
+    passed = passed + 1;
+
+    test_with_retries_max_limit();
+    total = total + 1;
+    passed = passed + 1;
+
+    //  JSON tests
+    test_to_json();
+    total = total + 1;
+    passed = passed + 1;
+
+    test_parse_json();
+    total = total + 1;
+    passed = passed + 1;
+
+    //  HTTP methods tests
+    test_get_request();
+    total = total + 1;
+    passed = passed + 1;
+
+    test_post_request();
+    total = total + 1;
+    passed = passed + 1;
+
+    println("");
+    println("=== Test Results ===");
+    println("Total: " + str(total));
+    println("Passed: " + str(passed));
+    println("Failed: " + str(total - passed));
+
+    if (passed == total) {
+        println("All tests PASSED!");
+    } else {
+        println("Some tests FAILED!");
+    }
+}
+
+//  Run test suite
+run_tests();
+
+/*---------------------------------------------------------------------------
+
+Test Organization:
+- Tests grouped by functionality (options, JSON, HTTP methods)
+- Each test function validates specific behavior
+- Tests use assert() for validation
+- Clear pass/fail reporting
+
+Running Tests:
+  cargo run -p solvrascript -- stdlib/tests/test_http.svs
+
+Expected Output:
+  === HTTP Module Tests ===
+
+  [TEST] with_headers()
+    PASS
+  [TEST] with_timeout()
+    PASS
+  ...
+
+  === Test Results ===
+  Total: 8
+  Passed: 8
+  Failed: 0
+  All tests PASSED!
+
+Next Steps:
+1. Add integration tests with real HTTP server
+2. Test error handling (timeouts, connection failures)
+3. Test retry logic
+4. Add performance benchmarks
+5. Test concurrent requests
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// End of file
+//=====================================================

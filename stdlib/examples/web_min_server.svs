@@ -1,0 +1,161 @@
+//=====================================================
+// File: web_min_server.svs
+//=====================================================
+// Author: Zachariah Obie
+// License: Apache License 2.0
+// Goal: Demonstrate minimal HTTP server with routing
+// Objective: Show how to use <web/server> and <web/router> to build a simple API
+//=====================================================
+
+//=====================================================
+// Import & Modules
+//=====================================================
+import { create_server, listen, send_json, send_error } from <web/server>;
+import { create_router, get, post, match_request, get_param } from <web/router>;
+
+//=====================================================
+// Section 1.0: Route Handlers
+//=====================================================
+
+fn handle_root(request, response, match) {
+    //  Root endpoint - returns API information
+    send_json(response, 200, {
+        "name": "SolvraScript Web API",
+        "version": "1.0.0",
+        "endpoints": [
+            "GET /",
+            "GET /api/status",
+            "GET /api/users/:id",
+            "POST /api/users"
+        ]
+    });
+}
+
+fn handle_status(request, response, match) {
+    //  Status endpoint - returns server health
+    send_json(response, 200, {
+        "status": "ok",
+        "uptime_ms": 12345,
+        "requests_served": 42
+    });
+}
+
+fn handle_get_user(request, response, match) {
+    //  Get user by ID
+    let user_id = get_param(match, "id");
+
+    //  Mock user data
+    send_json(response, 200, {
+        "id": user_id,
+        "name": "User " + user_id,
+        "email": "user" + user_id + "@example.com"
+    });
+}
+
+fn handle_create_user(request, response, match) {
+    //  Create new user
+    //  In production, would parse request body and store in database
+
+    send_json(response, 201, {
+        "id": "123",
+        "message": "User created successfully"
+    });
+}
+
+//=====================================================
+// Section 2.0: Router Setup
+//=====================================================
+
+fn setup_router() {
+    //  Create router and register routes
+    let router = create_router();
+
+    //  Register route handlers
+    router = get(router, "/", handle_root);
+    router = get(router, "/api/status", handle_status);
+    router = get(router, "/api/users/:id", handle_get_user);
+    router = post(router, "/api/users", handle_create_user);
+
+    return router;
+}
+
+//=====================================================
+// Section 3.0: Request Handler
+//=====================================================
+
+fn create_handler(router) {
+    //  Create main request handler function
+    return fn(request, response) {
+        //  Log request
+        println("[" + request["method"] + "] " + request["path"]);
+
+        //  Try to match route
+        let match = match_request(router, request);
+
+        if (match != null) {
+            //  Route matched - call handler
+            match["handler"](request, response, match);
+        } else {
+            //  No route matched - 404
+            send_error(response, 404, "Not Found");
+        }
+    };
+}
+
+//=====================================================
+// Section 4.0: Main Server
+//=====================================================
+
+fn main() {
+    //  Setup router
+    let router = setup_router();
+
+    //  Create server
+    let server = create_server({});
+    server["handler"] = create_handler(router);
+
+    //  Start listening
+    println("Starting server on http://localhost:8080");
+    println("Try these endpoints:");
+    println("  GET  http://localhost:8080/");
+    println("  GET  http://localhost:8080/api/status");
+    println("  GET  http://localhost:8080/api/users/123");
+    println("  POST http://localhost:8080/api/users");
+    println("");
+    println("Press Ctrl+C to stop");
+
+    listen(server, 8080);
+}
+
+//  Run server
+main();
+
+/*---------------------------------------------------------------------------
+
+Example Output:
+  Starting server on http://localhost:8080
+  Try these endpoints:
+    GET  http://localhost:8080/
+    GET  http://localhost:8080/api/status
+    GET  http://localhost:8080/api/users/123
+    POST http://localhost:8080/api/users
+
+  Press Ctrl+C to stop
+
+  [GET] /
+  [GET] /api/status
+  [GET] /api/users/42
+  [POST] /api/users
+
+Next Steps:
+1. Add middleware for logging, auth, CORS
+2. Connect to database (<storage/kv> or external)
+3. Parse request bodies (JSON, form data)
+4. Add static file serving (<web/static>)
+5. Implement proper error handling
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// End of file
+//=====================================================

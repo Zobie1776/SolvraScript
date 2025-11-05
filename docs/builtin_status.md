@@ -11,7 +11,8 @@ This document captures the current state of SolvraScript's built-in runtime libr
 | `div` / `division` | ✅ Implemented | Variadic-free numeric division with divide-by-zero protection. |
 | `sbt` / `subtract` | ✅ Implemented | Numeric subtraction returning `int` when both inputs are integers. |
 | `bool` / `boolean` | ✅ Implemented | Truthiness coercion into SolvraScript booleans. |
-| `input` | ✅ Implemented | Optional prompt, trims trailing newlines. |
+| `input` | ✅ Implemented | Reads a line from stdin, optional prompt argument, trims newline. |
+| `inp` | ✅ Implemented | Alias for `input`, typically called with shorthand prompts. |
 | `to_string` | ✅ Implemented | Uses runtime `Display` for conversion. |
 | `parse_int`, `parse_float` | ✅ Implemented | Graceful error handling with base support for integers. |
 | `len` | ✅ Implemented | Counts Unicode scalar values for strings. |

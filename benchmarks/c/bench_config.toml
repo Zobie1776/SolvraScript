@@ -1,0 +1,6 @@
+[language]
+name = "c"
+source_dir = "scripts"
+include_dir = "include"
+results_dir = "results"
+log_dir = "results/logs"

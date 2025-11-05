@@ -476,7 +476,37 @@ impl Interpreter {
             Interpreter::builtin_prt,
         );
         self.register_builtin(
+            "std::io::print",
+            NativeArity::Range { min: 0, max: None },
+            Interpreter::builtin_prt,
+        );
+        self.register_builtin(
+            "io::print",
+            NativeArity::Range { min: 0, max: None },
+            Interpreter::builtin_prt,
+        );
+        self.register_builtin(
+            "legacy_io_print",
+            NativeArity::Range { min: 0, max: None },
+            Interpreter::builtin_prt,
+        );
+        self.register_builtin(
             "println",
+            NativeArity::Range { min: 0, max: None },
+            Interpreter::builtin_println,
+        );
+        self.register_builtin(
+            "std::io::println",
+            NativeArity::Range { min: 0, max: None },
+            Interpreter::builtin_println,
+        );
+        self.register_builtin(
+            "io::println",
+            NativeArity::Range { min: 0, max: None },
+            Interpreter::builtin_println,
+        );
+        self.register_builtin(
+            "legacy_io_println",
             NativeArity::Range { min: 0, max: None },
             Interpreter::builtin_println,
         );
@@ -487,6 +517,21 @@ impl Interpreter {
         self.register_builtin("subtract", NativeArity::Exact(2), Interpreter::builtin_sbt);
         self.register_builtin("bool", NativeArity::Exact(1), Interpreter::builtin_bool);
         self.register_builtin("boolean", NativeArity::Exact(1), Interpreter::builtin_bool);
+        self.register_builtin(
+            "std::sys::bool",
+            NativeArity::Exact(1),
+            Interpreter::builtin_bool,
+        );
+        self.register_builtin(
+            "sys::bool",
+            NativeArity::Exact(1),
+            Interpreter::builtin_bool,
+        );
+        self.register_builtin(
+            "legacy_sys_bool",
+            NativeArity::Exact(1),
+            Interpreter::builtin_bool,
+        );
         self.register_builtin("endl", NativeArity::Exact(0), Interpreter::builtin_endl);
         self.register_builtin(
             "hal_devices",
@@ -523,7 +568,87 @@ impl Interpreter {
             Interpreter::builtin_input,
         );
         self.register_builtin(
+            "std::io::input",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_input,
+        );
+        self.register_builtin(
+            "io::input",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_input,
+        );
+        self.register_builtin(
+            "legacy_io_input",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_input,
+        );
+        self.register_builtin(
+            "inp",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_input,
+        );
+        self.register_builtin(
+            "std::io::inp",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_input,
+        );
+        self.register_builtin(
+            "io::inp",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_input,
+        );
+        self.register_builtin(
+            "legacy_io_inp",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_input,
+        );
+        self.register_builtin(
             "parse_int",
+            NativeArity::Range {
+                min: 1,
+                max: Some(2),
+            },
+            Interpreter::builtin_parse_int,
+        );
+        self.register_builtin(
+            "std::string::parse_int",
+            NativeArity::Range {
+                min: 1,
+                max: Some(2),
+            },
+            Interpreter::builtin_parse_int,
+        );
+        self.register_builtin(
+            "string::parse_int",
+            NativeArity::Range {
+                min: 1,
+                max: Some(2),
+            },
+            Interpreter::builtin_parse_int,
+        );
+        self.register_builtin(
+            "legacy_string_parse_int",
             NativeArity::Range {
                 min: 1,
                 max: Some(2),
@@ -536,12 +661,72 @@ impl Interpreter {
             Interpreter::builtin_parse_float,
         );
         self.register_builtin(
+            "std::string::parse_float",
+            NativeArity::Exact(1),
+            Interpreter::builtin_parse_float,
+        );
+        self.register_builtin(
+            "string::parse_float",
+            NativeArity::Exact(1),
+            Interpreter::builtin_parse_float,
+        );
+        self.register_builtin(
+            "legacy_string_parse_float",
+            NativeArity::Exact(1),
+            Interpreter::builtin_parse_float,
+        );
+        self.register_builtin(
             "to_string",
             NativeArity::Exact(1),
             Interpreter::builtin_to_string,
         );
+        self.register_builtin(
+            "std::string::to_string",
+            NativeArity::Exact(1),
+            Interpreter::builtin_to_string,
+        );
+        self.register_builtin(
+            "string::to_string",
+            NativeArity::Exact(1),
+            Interpreter::builtin_to_string,
+        );
+        self.register_builtin(
+            "legacy_string_to_string",
+            NativeArity::Exact(1),
+            Interpreter::builtin_to_string,
+        );
         self.register_builtin("len", NativeArity::Exact(1), Interpreter::builtin_len);
+        self.register_builtin(
+            "std::string::len",
+            NativeArity::Exact(1),
+            Interpreter::builtin_len,
+        );
+        self.register_builtin(
+            "string::len",
+            NativeArity::Exact(1),
+            Interpreter::builtin_len,
+        );
+        self.register_builtin(
+            "legacy_string_len",
+            NativeArity::Exact(1),
+            Interpreter::builtin_len,
+        );
         self.register_builtin("type", NativeArity::Exact(1), Interpreter::builtin_type);
+        self.register_builtin(
+            "std::sys::type",
+            NativeArity::Exact(1),
+            Interpreter::builtin_type,
+        );
+        self.register_builtin(
+            "sys::type",
+            NativeArity::Exact(1),
+            Interpreter::builtin_type,
+        );
+        self.register_builtin(
+            "legacy_sys_type",
+            NativeArity::Exact(1),
+            Interpreter::builtin_type,
+        );
         self.register_builtin(
             "random",
             NativeArity::Range {
@@ -551,15 +736,78 @@ impl Interpreter {
             Interpreter::builtin_random,
         );
         self.register_builtin("time", NativeArity::Exact(0), Interpreter::builtin_time);
+        self.register_builtin(
+            "std::time::time",
+            NativeArity::Exact(0),
+            Interpreter::builtin_time,
+        );
+        self.register_builtin(
+            "time::time",
+            NativeArity::Exact(0),
+            Interpreter::builtin_time,
+        );
+        self.register_builtin(
+            "legacy_time_time",
+            NativeArity::Exact(0),
+            Interpreter::builtin_time,
+        );
         self.register_builtin("now", NativeArity::Exact(0), Interpreter::builtin_now);
+        self.register_builtin(
+            "std::time::now",
+            NativeArity::Exact(0),
+            Interpreter::builtin_now,
+        );
+        self.register_builtin("time::now", NativeArity::Exact(0), Interpreter::builtin_now);
+        self.register_builtin(
+            "legacy_time_now",
+            NativeArity::Exact(0),
+            Interpreter::builtin_now,
+        );
         self.register_builtin("push", NativeArity::Exact(2), Interpreter::builtin_push);
         self.register_builtin("pop", NativeArity::Exact(1), Interpreter::builtin_pop);
         self.register_builtin("insert", NativeArity::Exact(3), Interpreter::builtin_insert);
         self.register_builtin("remove", NativeArity::Exact(2), Interpreter::builtin_remove);
         self.register_builtin("sin", NativeArity::Exact(1), Interpreter::builtin_sin);
+        self.register_builtin(
+            "std::math::sin",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sin,
+        );
+        self.register_builtin("math::sin", NativeArity::Exact(1), Interpreter::builtin_sin);
+        self.register_builtin(
+            "legacy_math_sin",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sin,
+        );
         self.register_builtin("cos", NativeArity::Exact(1), Interpreter::builtin_cos);
+        self.register_builtin(
+            "std::math::cos",
+            NativeArity::Exact(1),
+            Interpreter::builtin_cos,
+        );
+        self.register_builtin("math::cos", NativeArity::Exact(1), Interpreter::builtin_cos);
+        self.register_builtin(
+            "legacy_math_cos",
+            NativeArity::Exact(1),
+            Interpreter::builtin_cos,
+        );
         self.register_builtin("tan", NativeArity::Exact(1), Interpreter::builtin_tan);
         self.register_builtin("sqrt", NativeArity::Exact(1), Interpreter::builtin_sqrt);
+        self.register_builtin(
+            "std::math::sqrt",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sqrt,
+        );
+        self.register_builtin(
+            "math::sqrt",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sqrt,
+        );
+        self.register_builtin(
+            "legacy_math_sqrt",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sqrt,
+        );
         self.register_builtin(
             "log",
             NativeArity::Range {
@@ -569,10 +817,110 @@ impl Interpreter {
             Interpreter::builtin_log,
         );
         self.register_builtin("pow", NativeArity::Exact(2), Interpreter::builtin_pow);
+        self.register_builtin(
+            "std::math::pow",
+            NativeArity::Exact(2),
+            Interpreter::builtin_pow,
+        );
+        self.register_builtin("math::pow", NativeArity::Exact(2), Interpreter::builtin_pow);
+        self.register_builtin(
+            "legacy_math_pow",
+            NativeArity::Exact(2),
+            Interpreter::builtin_pow,
+        );
+        self.register_builtin("min", NativeArity::Exact(2), Interpreter::builtin_min);
+        self.register_builtin(
+            "std::math::min",
+            NativeArity::Exact(2),
+            Interpreter::builtin_min,
+        );
+        self.register_builtin("math::min", NativeArity::Exact(2), Interpreter::builtin_min);
+        self.register_builtin(
+            "legacy_math_min",
+            NativeArity::Exact(2),
+            Interpreter::builtin_min,
+        );
+        self.register_builtin("max", NativeArity::Exact(2), Interpreter::builtin_max);
+        self.register_builtin(
+            "std::math::max",
+            NativeArity::Exact(2),
+            Interpreter::builtin_max,
+        );
+        self.register_builtin("math::max", NativeArity::Exact(2), Interpreter::builtin_max);
+        self.register_builtin(
+            "legacy_math_max",
+            NativeArity::Exact(2),
+            Interpreter::builtin_max,
+        );
         self.register_builtin("abs", NativeArity::Exact(1), Interpreter::builtin_abs);
+        self.register_builtin(
+            "std::math::abs",
+            NativeArity::Exact(1),
+            Interpreter::builtin_abs,
+        );
+        self.register_builtin("math::abs", NativeArity::Exact(1), Interpreter::builtin_abs);
+        self.register_builtin(
+            "legacy_math_abs",
+            NativeArity::Exact(1),
+            Interpreter::builtin_abs,
+        );
         self.register_builtin("sleep", NativeArity::Exact(1), Interpreter::builtin_sleep);
         self.register_builtin(
+            "std::io::sleep",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sleep,
+        );
+        self.register_builtin(
+            "std::time::sleep",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sleep,
+        );
+        self.register_builtin(
+            "io::sleep",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sleep,
+        );
+        self.register_builtin(
+            "time::sleep",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sleep,
+        );
+        self.register_builtin(
+            "legacy_io_sleep",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sleep,
+        );
+        self.register_builtin(
+            "legacy_time_sleep",
+            NativeArity::Exact(1),
+            Interpreter::builtin_sleep,
+        );
+        self.register_builtin(
             "exit",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_exit,
+        );
+        self.register_builtin(
+            "std::sys::exit",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_exit,
+        );
+        self.register_builtin(
+            "sys::exit",
+            NativeArity::Range {
+                min: 0,
+                max: Some(1),
+            },
+            Interpreter::builtin_exit,
+        );
+        self.register_builtin(
+            "legacy_sys_exit",
             NativeArity::Range {
                 min: 0,
                 max: Some(1),
@@ -585,7 +933,37 @@ impl Interpreter {
             Interpreter::builtin_env_get,
         );
         self.register_builtin(
+            "std::sys::env_get",
+            NativeArity::Exact(1),
+            Interpreter::builtin_env_get,
+        );
+        self.register_builtin(
+            "sys::env_get",
+            NativeArity::Exact(1),
+            Interpreter::builtin_env_get,
+        );
+        self.register_builtin(
+            "legacy_sys_env_get",
+            NativeArity::Exact(1),
+            Interpreter::builtin_env_get,
+        );
+        self.register_builtin(
             "env_set",
+            NativeArity::Exact(2),
+            Interpreter::builtin_env_set,
+        );
+        self.register_builtin(
+            "std::sys::env_set",
+            NativeArity::Exact(2),
+            Interpreter::builtin_env_set,
+        );
+        self.register_builtin(
+            "sys::env_set",
+            NativeArity::Exact(2),
+            Interpreter::builtin_env_set,
+        );
+        self.register_builtin(
+            "legacy_sys_env_set",
             NativeArity::Exact(2),
             Interpreter::builtin_env_set,
         );
@@ -595,7 +973,37 @@ impl Interpreter {
             Interpreter::builtin_process_run,
         );
         self.register_builtin(
+            "std::sys::process_run",
+            NativeArity::Exact(1),
+            Interpreter::builtin_process_run,
+        );
+        self.register_builtin(
+            "sys::process_run",
+            NativeArity::Exact(1),
+            Interpreter::builtin_process_run,
+        );
+        self.register_builtin(
+            "legacy_sys_process_run",
+            NativeArity::Exact(1),
+            Interpreter::builtin_process_run,
+        );
+        self.register_builtin(
             "process_spawn",
+            NativeArity::Exact(1),
+            Interpreter::builtin_process_spawn,
+        );
+        self.register_builtin(
+            "std::sys::process_spawn",
+            NativeArity::Exact(1),
+            Interpreter::builtin_process_spawn,
+        );
+        self.register_builtin(
+            "sys::process_spawn",
+            NativeArity::Exact(1),
+            Interpreter::builtin_process_spawn,
+        );
+        self.register_builtin(
+            "legacy_sys_process_spawn",
             NativeArity::Exact(1),
             Interpreter::builtin_process_spawn,
         );
@@ -608,7 +1016,46 @@ impl Interpreter {
             Interpreter::builtin_open_file,
         );
         self.register_builtin(
+            "std::fs::open_file",
+            NativeArity::Range {
+                min: 1,
+                max: Some(2),
+            },
+            Interpreter::builtin_open_file,
+        );
+        self.register_builtin(
+            "fs::open_file",
+            NativeArity::Range {
+                min: 1,
+                max: Some(2),
+            },
+            Interpreter::builtin_open_file,
+        );
+        self.register_builtin(
+            "legacy_fs_open_file",
+            NativeArity::Range {
+                min: 1,
+                max: Some(2),
+            },
+            Interpreter::builtin_open_file,
+        );
+        self.register_builtin(
             "read_file",
+            NativeArity::Exact(1),
+            Interpreter::builtin_read_file,
+        );
+        self.register_builtin(
+            "std::fs::read_file",
+            NativeArity::Exact(1),
+            Interpreter::builtin_read_file,
+        );
+        self.register_builtin(
+            "fs::read_file",
+            NativeArity::Exact(1),
+            Interpreter::builtin_read_file,
+        );
+        self.register_builtin(
+            "legacy_fs_read_file",
             NativeArity::Exact(1),
             Interpreter::builtin_read_file,
         );
@@ -621,13 +1068,82 @@ impl Interpreter {
             Interpreter::builtin_write_file,
         );
         self.register_builtin(
+            "std::fs::write_file",
+            NativeArity::Range {
+                min: 2,
+                max: Some(3),
+            },
+            Interpreter::builtin_write_file,
+        );
+        self.register_builtin(
+            "fs::write_file",
+            NativeArity::Range {
+                min: 2,
+                max: Some(3),
+            },
+            Interpreter::builtin_write_file,
+        );
+        self.register_builtin(
+            "legacy_fs_write_file",
+            NativeArity::Range {
+                min: 2,
+                max: Some(3),
+            },
+            Interpreter::builtin_write_file,
+        );
+        self.register_builtin(
             "fs_exists",
+            NativeArity::Exact(1),
+            Interpreter::builtin_fs_exists,
+        );
+        self.register_builtin(
+            "std::fs::fs_exists",
+            NativeArity::Exact(1),
+            Interpreter::builtin_fs_exists,
+        );
+        self.register_builtin(
+            "fs::fs_exists",
+            NativeArity::Exact(1),
+            Interpreter::builtin_fs_exists,
+        );
+        self.register_builtin(
+            "legacy_fs_exists",
             NativeArity::Exact(1),
             Interpreter::builtin_fs_exists,
         );
         self.register_builtin("fs_ls", NativeArity::Exact(1), Interpreter::builtin_fs_ls);
         self.register_builtin(
+            "std::fs::fs_ls",
+            NativeArity::Exact(1),
+            Interpreter::builtin_fs_ls,
+        );
+        self.register_builtin(
+            "fs::fs_ls",
+            NativeArity::Exact(1),
+            Interpreter::builtin_fs_ls,
+        );
+        self.register_builtin(
+            "legacy_fs_ls",
+            NativeArity::Exact(1),
+            Interpreter::builtin_fs_ls,
+        );
+        self.register_builtin(
             "close_file",
+            NativeArity::Exact(1),
+            Interpreter::builtin_close_file,
+        );
+        self.register_builtin(
+            "std::fs::close_file",
+            NativeArity::Exact(1),
+            Interpreter::builtin_close_file,
+        );
+        self.register_builtin(
+            "fs::close_file",
+            NativeArity::Exact(1),
+            Interpreter::builtin_close_file,
+        );
+        self.register_builtin(
+            "legacy_fs_close_file",
             NativeArity::Exact(1),
             Interpreter::builtin_close_file,
         );
@@ -637,7 +1153,37 @@ impl Interpreter {
             Interpreter::builtin_json_stringify,
         );
         self.register_builtin(
+            "std::json::stringify",
+            NativeArity::Exact(1),
+            Interpreter::builtin_json_stringify,
+        );
+        self.register_builtin(
+            "json::stringify",
+            NativeArity::Exact(1),
+            Interpreter::builtin_json_stringify,
+        );
+        self.register_builtin(
+            "legacy_json_stringify",
+            NativeArity::Exact(1),
+            Interpreter::builtin_json_stringify,
+        );
+        self.register_builtin(
             "json_parse",
+            NativeArity::Exact(1),
+            Interpreter::builtin_json_parse,
+        );
+        self.register_builtin(
+            "std::json::parse",
+            NativeArity::Exact(1),
+            Interpreter::builtin_json_parse,
+        );
+        self.register_builtin(
+            "json::parse",
+            NativeArity::Exact(1),
+            Interpreter::builtin_json_parse,
+        );
+        self.register_builtin(
+            "legacy_json_parse",
             NativeArity::Exact(1),
             Interpreter::builtin_json_parse,
         );
@@ -673,7 +1219,37 @@ impl Interpreter {
             Interpreter::builtin_path_join,
         );
         self.register_builtin(
+            "std::fs::path_join",
+            NativeArity::Exact(2),
+            Interpreter::builtin_path_join,
+        );
+        self.register_builtin(
+            "fs::path_join",
+            NativeArity::Exact(2),
+            Interpreter::builtin_path_join,
+        );
+        self.register_builtin(
+            "legacy_fs_path_join",
+            NativeArity::Exact(2),
+            Interpreter::builtin_path_join,
+        );
+        self.register_builtin(
             "path_home_dir",
+            NativeArity::Exact(0),
+            Interpreter::builtin_path_home_dir,
+        );
+        self.register_builtin(
+            "std::fs::path_home_dir",
+            NativeArity::Exact(0),
+            Interpreter::builtin_path_home_dir,
+        );
+        self.register_builtin(
+            "fs::path_home_dir",
+            NativeArity::Exact(0),
+            Interpreter::builtin_path_home_dir,
+        );
+        self.register_builtin(
+            "legacy_fs_path_home_dir",
             NativeArity::Exact(0),
             Interpreter::builtin_path_home_dir,
         );
@@ -1347,10 +1923,12 @@ impl Interpreter {
                 let _ =
                     module_interpreter.eval_program_with_origin(program, Some(origin.as_path()))?;
                 let updated = module_interpreter.globals_snapshot();
-                let builtins: HashSet<String> = baseline.keys().cloned().collect();
                 updated
                     .into_iter()
-                    .filter(|(name, _)| !builtins.contains(name))
+                    .filter(|(name, value)| match baseline.get(name) {
+                        Some(original) => original != value,
+                        None => true,
+                    })
                     .collect::<HashMap<_, _>>()
             }
             ModuleArtifact::Compiled { path, .. } => {
@@ -1804,6 +2382,30 @@ impl Interpreter {
         let base = expect_number(&args[0], "pow")?;
         let exponent = expect_number(&args[1], "pow")?;
         Ok(Value::Float(base.powf(exponent)))
+    }
+
+    fn builtin_min(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let left = &args[0];
+        let right = &args[1];
+        let left_num = expect_number(left, "min")?;
+        let right_num = expect_number(right, "min")?;
+        if let (Value::Int(a), Value::Int(b)) = (left, right) {
+            Ok(Value::Int(std::cmp::min(*a, *b)))
+        } else {
+            Ok(Value::Float(left_num.min(right_num)))
+        }
+    }
+
+    fn builtin_max(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let left = &args[0];
+        let right = &args[1];
+        let left_num = expect_number(left, "max")?;
+        let right_num = expect_number(right, "max")?;
+        if let (Value::Int(a), Value::Int(b)) = (left, right) {
+            Ok(Value::Int(std::cmp::max(*a, *b)))
+        } else {
+            Ok(Value::Float(left_num.max(right_num)))
+        }
     }
 
     fn builtin_abs(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {

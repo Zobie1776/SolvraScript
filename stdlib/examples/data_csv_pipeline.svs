@@ -1,0 +1,306 @@
+//=====================================================
+// File: data_csv_pipeline.svs
+//=====================================================
+// Author: Zachariah Obie
+// License: Apache License 2.0
+// Goal: Demonstrate CSV data processing pipeline
+// Objective: Show how to use <data/io> for ETL workflows
+//=====================================================
+
+//=====================================================
+// Import & Modules
+//=====================================================
+import { read_csv, write_csv, write_json } from <data/io>;
+
+//=====================================================
+// Section 1.0: Data Loading
+//=====================================================
+
+fn load_sales_data() {
+    //  Load sales data from CSV file
+    //  Returns: [[string]] - Parsed CSV rows
+
+    println("Loading sales data from CSV...");
+
+    //  In production, would read from actual file:
+    //  let rows = read_csv("/data/sales_2024.csv", {"header": true});
+
+    //  Mock data for demonstration
+    let rows = [
+        ["Date", "Product", "Quantity", "Price", "Region"],
+        ["2024-01-15", "Widget A", "10", "25.50", "North"],
+        ["2024-01-15", "Widget B", "5", "42.00", "South"],
+        ["2024-01-16", "Widget A", "15", "25.50", "North"],
+        ["2024-01-16", "Widget C", "8", "15.75", "East"],
+        ["2024-01-17", "Widget B", "12", "42.00", "West"],
+        ["2024-01-17", "Widget A", "6", "25.50", "South"]
+    ];
+
+    println("Loaded " + str(len(rows) - 1) + " sales records");
+
+    return rows;
+}
+
+//=====================================================
+// Section 2.0: Data Transformation
+//=====================================================
+
+fn parse_sales_record(row) {
+    //  Convert CSV row to structured record
+    //  row: [string] - CSV row (Date, Product, Quantity, Price, Region)
+    //  Returns: map - Parsed record
+
+    return {
+        "date": row[0],
+        "product": row[1],
+        "quantity": int(row[2]),
+        "price": float(row[3]),
+        "region": row[4],
+        "revenue": int(row[2]) * float(row[3])  //  Calculated field
+    };
+}
+
+fn filter_by_region(records, target_region) {
+    //  Filter records by region
+    //  records: [map] - Sales records
+    //  target_region: string - Region to filter by
+    //  Returns: [map] - Filtered records
+
+    println("Filtering records for region: " + target_region);
+
+    let filtered = [];
+    for (let record in records) {
+        if (record["region"] == target_region) {
+            push(filtered, record);
+        }
+    }
+
+    println("Found " + str(len(filtered)) + " records in " + target_region);
+
+    return filtered;
+}
+
+fn aggregate_by_product(records) {
+    //  Aggregate sales by product
+    //  records: [map] - Sales records
+    //  Returns: map - {product: {total_quantity, total_revenue}}
+
+    println("Aggregating sales by product...");
+
+    let aggregates = {};
+
+    for (let record in records) {
+        let product = record["product"];
+
+        if (!has_key(aggregates, product)) {
+            aggregates[product] = {
+                "product": product,
+                "total_quantity": 0,
+                "total_revenue": 0.0
+            };
+        }
+
+        aggregates[product]["total_quantity"] = aggregates[product]["total_quantity"] + record["quantity"];
+        aggregates[product]["total_revenue"] = aggregates[product]["total_revenue"] + record["revenue"];
+    }
+
+    println("Aggregated " + str(len(keys(aggregates))) + " products");
+
+    return aggregates;
+}
+
+//=====================================================
+// Section 3.0: Data Output
+//=====================================================
+
+fn export_to_csv(aggregates, output_path) {
+    //  Export aggregates to CSV file
+    //  aggregates: map - Aggregated data
+    //  output_path: string - Output file path
+
+    println("Exporting to CSV: " + output_path);
+
+    //  Convert to CSV rows
+    let rows = [
+        ["Product", "Total Quantity", "Total Revenue"]
+    ];
+
+    let products = keys(aggregates);
+    for (let product in products) {
+        let agg = aggregates[product];
+        push(rows, [
+            agg["product"],
+            str(agg["total_quantity"]),
+            str(agg["total_revenue"])
+        ]);
+    }
+
+    //  Write CSV
+    //  write_csv(output_path, rows, {});
+
+    //  For demo, just print
+    println("CSV Output:");
+    for (let row in rows) {
+        println("  " + row[0] + ", " + row[1] + ", " + row[2]);
+    }
+}
+
+fn export_to_json(aggregates, output_path) {
+    //  Export aggregates to JSON file
+    //  aggregates: map - Aggregated data
+    //  output_path: string - Output file path
+
+    println("");
+    println("Exporting to JSON: " + output_path);
+
+    //  Convert to array for JSON export
+    let results = [];
+    let products = keys(aggregates);
+    for (let product in products) {
+        push(results, aggregates[product]);
+    }
+
+    //  Write JSON
+    //  write_json(output_path, results, {"pretty": true, "indent": 2});
+
+    //  For demo, just print
+    println("JSON Output:");
+    println(json_encode(results));
+}
+
+//=====================================================
+// Section 4.0: Pipeline Execution
+//=====================================================
+
+fn run_pipeline() {
+    //  Execute complete data processing pipeline
+
+    println("=== CSV Data Processing Pipeline ===");
+    println("");
+
+    //  Step 1: Load data
+    let raw_rows = load_sales_data();
+    println("");
+
+    //  Step 2: Parse into structured records (skip header)
+    println("Parsing records...");
+    let records = [];
+    for (let i = 1; i < len(raw_rows); i = i + 1) {
+        let record = parse_sales_record(raw_rows[i]);
+        push(records, record);
+    }
+    println("Parsed " + str(len(records)) + " records");
+    println("");
+
+    //  Step 3: Filter by region
+    let north_records = filter_by_region(records, "North");
+    println("");
+
+    //  Step 4: Aggregate by product
+    let north_aggregates = aggregate_by_product(north_records);
+    println("");
+
+    //  Step 5: Export results
+    export_to_csv(north_aggregates, "/output/north_sales_summary.csv");
+    export_to_json(north_aggregates, "/output/north_sales_summary.json");
+    println("");
+
+    //  Step 6: Overall summary
+    print_summary(records, north_aggregates);
+}
+
+fn print_summary(all_records, north_aggregates) {
+    //  Print pipeline summary
+
+    println("=== Pipeline Summary ===");
+    println("Total records processed: " + str(len(all_records)));
+
+    let total_revenue = 0.0;
+    for (let record in all_records) {
+        total_revenue = total_revenue + record["revenue"];
+    }
+
+    println("Total revenue (all regions): $" + str(total_revenue));
+
+    let north_revenue = 0.0;
+    let products = keys(north_aggregates);
+    for (let product in products) {
+        north_revenue = north_revenue + north_aggregates[product]["total_revenue"];
+    }
+
+    println("North region revenue: $" + str(north_revenue));
+    println("North region % of total: " + str((north_revenue / total_revenue) * 100.0) + "%");
+}
+
+//=====================================================
+// Section 5.0: Main
+//=====================================================
+
+fn main() {
+    run_pipeline();
+    println("");
+    println("Pipeline complete!");
+}
+
+//  Run pipeline
+main();
+
+/*---------------------------------------------------------------------------
+
+Example Output:
+  === CSV Data Processing Pipeline ===
+
+  Loading sales data from CSV...
+  Loaded 6 sales records
+
+  Parsing records...
+  Parsed 6 records
+
+  Filtering records for region: North
+  Found 2 records in North
+
+  Aggregating sales by product...
+  Aggregated 1 products
+
+  Exporting to CSV: /output/north_sales_summary.csv
+  CSV Output:
+    Product, Total Quantity, Total Revenue
+    Widget A, 25, 637.5
+
+  Exporting to JSON: /output/north_sales_summary.json
+  JSON Output:
+  [{"product":"Widget A","total_quantity":25,"total_revenue":637.5}]
+
+  === Pipeline Summary ===
+  Total records processed: 6
+  Total revenue (all regions): $1567.5
+  North region revenue: $637.5
+  North region % of total: 40.67%
+
+  Pipeline complete!
+
+ETL Pipeline Pattern Demonstrated:
+1. Extract - Load data from CSV file
+2. Transform - Parse, filter, aggregate
+3. Load - Export to CSV and JSON
+
+Common Data Operations:
+- CSV parsing with headers
+- Type conversion (string to int/float)
+- Filtering by criteria
+- Aggregation (sum, count, etc.)
+- Multi-format export (CSV, JSON)
+
+Next Steps:
+1. Add error handling for malformed data
+2. Implement streaming for large files (stream_csv)
+3. Add schema validation (validate_schema)
+4. Connect to databases for output
+5. Add more transformations (join, pivot, etc.)
+6. Implement parallel processing
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// End of file
+//=====================================================

@@ -1,0 +1,36 @@
+//==================================================
+// File: tests/stdlib/use_std_json.svs
+//==================================================
+// Author: ZobieLabs
+// License: Apache License 2.0
+// Goal: Validate <json> stdlib bridge for parse/stringify helpers
+// Objective: Ensure JSON round-trip behaves identically to legacy builtins
+//==================================================
+
+import <json>;
+
+fn main() {
+    let parsed = json.parse("{\"answer\": 42, \"label\": \"life\"}");
+    if type(parsed) != "object" {
+        return false;
+    }
+
+    if parsed["answer"] != 42 {
+        return false;
+    }
+
+    let encoded = json.stringify(parsed);
+    if type(encoded) != "string" {
+        return false;
+    }
+
+    // Quick regression: ensure stringify output still parses.
+    let round = json.parse(encoded);
+    return round["label"] == "life";
+}
+
+main();
+
+//==================================================
+// End of file
+//==================================================

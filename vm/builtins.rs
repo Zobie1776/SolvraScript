@@ -1,17 +1,21 @@
 use std::collections::HashMap;
+use std::fs;
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::thread;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
+use serde_json::Value as JsonValue;
 use serde_json::json;
 use solvra_core::{SolvraError, SolvraResult, Value};
 
 use super::async_control::AsyncControl;
+use super::legacy_builtins;
 use super::metrics::TelemetryCollector;
 use super::runtime::{MemoryStats, MemoryTracker};
 
-type SyncBuiltin = fn(&[Value]) -> SolvraResult<Value>;
+type SyncBuiltin = fn(&Builtins, &[Value]) -> SolvraResult<Value>;
 type AsyncBuiltin = fn(Vec<Value>) -> Pin<Box<dyn Future<Output = SolvraResult<Value>> + 'static>>;
 
 #[derive(Clone)]
@@ -20,6 +24,13 @@ pub struct Builtins {
     #[allow(dead_code)]
     async_map: HashMap<String, AsyncBuiltin>,
     context: BuiltinContext,
+    toml_cache: Arc<Mutex<HashMap<PathBuf, TomlCacheEntry>>>,
+}
+
+#[derive(Clone)]
+struct TomlCacheEntry {
+    modified: Option<SystemTime>,
+    json: String,
 }
 
 impl Builtins {
@@ -32,10 +43,80 @@ impl Builtins {
             sync: HashMap::new(),
             async_map: HashMap::new(),
             context,
+            toml_cache: Arc::new(Mutex::new(HashMap::new())),
         };
         builtins.register_sync("print", builtin_print);
+        builtins.register_sync("std::io::print", legacy_builtins::io_print);
+        builtins.register_sync("io::print", legacy_builtins::io_print);
+        builtins.register_sync("legacy_io_print", legacy_builtins::io_print);
         builtins.register_sync("println", builtin_println);
+        builtins.register_sync("std::io::println", legacy_builtins::io_println);
+        builtins.register_sync("io::println", legacy_builtins::io_println);
+        builtins.register_sync("legacy_io_println", legacy_builtins::io_println);
+        builtins.register_sync("input", builtin_input);
+        builtins.register_sync("std::io::input", legacy_builtins::io_input);
+        builtins.register_sync("io::input", legacy_builtins::io_input);
+        builtins.register_sync("legacy_io_input", legacy_builtins::io_input);
+        builtins.register_sync("inp", builtin_inp);
+        builtins.register_sync("std::io::inp", legacy_builtins::io_inp);
+        builtins.register_sync("io::inp", legacy_builtins::io_inp);
+        builtins.register_sync("legacy_io_inp", legacy_builtins::io_inp);
         builtins.register_sync("sleep", builtin_sleep);
+        builtins.register_sync("std::io::sleep", legacy_builtins::io_sleep);
+        builtins.register_sync("io::sleep", legacy_builtins::io_sleep);
+        builtins.register_sync("legacy_io_sleep", legacy_builtins::io_sleep);
+        builtins.register_sync("len", legacy_builtins::string_len);
+        builtins.register_sync("std::string::len", legacy_builtins::string_len);
+        builtins.register_sync("string::len", legacy_builtins::string_len);
+        builtins.register_sync("legacy_string_len", legacy_builtins::string_len);
+        builtins.register_sync("to_string", legacy_builtins::string_to_string);
+        builtins.register_sync("std::string::to_string", legacy_builtins::string_to_string);
+        builtins.register_sync("string::to_string", legacy_builtins::string_to_string);
+        builtins.register_sync("legacy_string_to_string", legacy_builtins::string_to_string);
+        builtins.register_sync("parse_int", legacy_builtins::string_parse_int);
+        builtins.register_sync("std::string::parse_int", legacy_builtins::string_parse_int);
+        builtins.register_sync("string::parse_int", legacy_builtins::string_parse_int);
+        builtins.register_sync("legacy_string_parse_int", legacy_builtins::string_parse_int);
+        builtins.register_sync("parse_float", legacy_builtins::string_parse_float);
+        builtins.register_sync(
+            "std::string::parse_float",
+            legacy_builtins::string_parse_float,
+        );
+        builtins.register_sync("string::parse_float", legacy_builtins::string_parse_float);
+        builtins.register_sync(
+            "legacy_string_parse_float",
+            legacy_builtins::string_parse_float,
+        );
+        builtins.register_sync("sqrt", legacy_builtins::math_sqrt);
+        builtins.register_sync("std::math::sqrt", legacy_builtins::math_sqrt);
+        builtins.register_sync("math::sqrt", legacy_builtins::math_sqrt);
+        builtins.register_sync("legacy_math_sqrt", legacy_builtins::math_sqrt);
+        builtins.register_sync("pow", legacy_builtins::math_pow);
+        builtins.register_sync("std::math::pow", legacy_builtins::math_pow);
+        builtins.register_sync("math::pow", legacy_builtins::math_pow);
+        builtins.register_sync("legacy_math_pow", legacy_builtins::math_pow);
+        builtins.register_sync("sin", legacy_builtins::math_sin);
+        builtins.register_sync("std::math::sin", legacy_builtins::math_sin);
+        builtins.register_sync("math::sin", legacy_builtins::math_sin);
+        builtins.register_sync("legacy_math_sin", legacy_builtins::math_sin);
+        builtins.register_sync("cos", legacy_builtins::math_cos);
+        builtins.register_sync("std::math::cos", legacy_builtins::math_cos);
+        builtins.register_sync("math::cos", legacy_builtins::math_cos);
+        builtins.register_sync("legacy_math_cos", legacy_builtins::math_cos);
+        builtins.register_sync("abs", legacy_builtins::math_abs);
+        builtins.register_sync("std::math::abs", legacy_builtins::math_abs);
+        builtins.register_sync("math::abs", legacy_builtins::math_abs);
+        builtins.register_sync("legacy_math_abs", legacy_builtins::math_abs);
+        builtins.register_sync("min", legacy_builtins::math_min);
+        builtins.register_sync("std::math::min", legacy_builtins::math_min);
+        builtins.register_sync("math::min", legacy_builtins::math_min);
+        builtins.register_sync("legacy_math_min", legacy_builtins::math_min);
+        builtins.register_sync("max", legacy_builtins::math_max);
+        builtins.register_sync("std::math::max", legacy_builtins::math_max);
+        builtins.register_sync("math::max", legacy_builtins::math_max);
+        builtins.register_sync("legacy_math_max", legacy_builtins::math_max);
+        builtins.register_sync("core_index", builtin_core_index);
+        builtins.register_sync("toml::load_file", builtin_toml_load_file);
         builtins
     }
 
@@ -57,7 +138,7 @@ impl Builtins {
             _ => {}
         }
         if let Some(func) = self.sync.get(name) {
-            func(args)
+            func(self, args)
         } else {
             Err(SolvraError::Internal(format!(
                 "unknown builtin function '{name}'"
@@ -77,7 +158,8 @@ impl Builtins {
         } else if let Some(sync) = self.sync.get(name) {
             let args_clone = args;
             let sync_fn = *sync;
-            let fut = Box::pin(async move { sync_fn(&args_clone) });
+            let builtins = self.clone();
+            let fut = Box::pin(async move { sync_fn(&builtins, &args_clone) });
             Ok(Some(fut))
         } else {
             Err(SolvraError::Internal(format!(
@@ -85,13 +167,119 @@ impl Builtins {
             )))
         }
     }
+
+    fn load_toml_json(&self, path: &Path) -> SolvraResult<String> {
+        let metadata = fs::metadata(path).map_err(|err| {
+            SolvraError::Internal(format!(
+                "failed to read toml metadata {}: {err}",
+                path.display()
+            ))
+        })?;
+        let modified = metadata.modified().ok();
+
+        // Fast path: served from cache if unchanged.
+        {
+            let cache = self
+                .toml_cache
+                .lock()
+                .map_err(|_| SolvraError::Internal("toml cache lock poisoned".into()))?;
+            if let Some(entry) = cache.get(path) {
+                if entry.modified == modified {
+                    return Ok(entry.json.clone());
+                }
+            }
+        }
+
+        let data = fs::read_to_string(path).map_err(|err| {
+            SolvraError::Internal(format!(
+                "failed to read toml file {}: {err}",
+                path.display()
+            ))
+        })?;
+        let parsed = parse_toml_value(&data, path)?;
+        let json_string = serde_json::to_string(&parsed).map_err(|err| {
+            SolvraError::Internal(format!("failed to serialise toml to json: {err}"))
+        })?;
+
+        let mut cache = self
+            .toml_cache
+            .lock()
+            .map_err(|_| SolvraError::Internal("toml cache lock poisoned".into()))?;
+        cache.insert(
+            path.to_path_buf(),
+            TomlCacheEntry {
+                modified,
+                json: json_string.clone(),
+            },
+        );
+        Ok(json_string)
+    }
 }
 
-fn builtin_print(args: &[Value]) -> SolvraResult<Value> {
-    if let Some(value) = args.first() {
-        print!("{}", value_to_string(value));
+fn builtin_print(_builtins: &Builtins, args: &[Value]) -> SolvraResult<Value> {
+    legacy_builtins::io_print(_builtins, args)
+}
+
+fn builtin_toml_load_file(builtins: &Builtins, args: &[Value]) -> SolvraResult<Value> {
+    let path_value = args
+        .get(0)
+        .ok_or_else(|| SolvraError::Internal("toml::load_file expects file path".into()))?;
+    let path_string = match path_value {
+        Value::String(s) => s.clone(),
+        other => legacy_builtins::value_to_string(other),
+    };
+
+    let resolved_path = resolve_file_path(&path_string).ok_or_else(|| {
+        SolvraError::Internal(format!(
+            "toml::load_file could not locate path {path_string}"
+        ))
+    })?;
+
+    let canonical = canonicalize_path(&resolved_path);
+    let json_string = builtins.load_toml_json(&canonical)?;
+    Ok(Value::String(json_string))
+}
+
+fn builtin_core_index(_builtins: &Builtins, args: &[Value]) -> SolvraResult<Value> {
+    if args.len() < 2 {
+        return Err(SolvraError::Internal(
+            "core_index expects collection and key".into(),
+        ));
     }
-    Ok(Value::Null)
+
+    let collection = &args[0];
+    let key_value = &args[1];
+
+    match collection {
+        Value::String(text) => {
+            if let Ok(json) = serde_json::from_str::<JsonValue>(text) {
+                let key = legacy_builtins::value_to_string(key_value);
+                if let Some(found) = resolve_json_path(&json, &key) {
+                    return Ok(json_to_value(found));
+                }
+                return Ok(Value::Null);
+            }
+
+            if let Some(index) = extract_integer(key_value) {
+                if index < 0 {
+                    return Ok(Value::Null);
+                }
+                let chars: Vec<char> = text.chars().collect();
+                let ch = chars
+                    .get(index as usize)
+                    .map(|c| Value::String(c.to_string()))
+                    .unwrap_or(Value::Null);
+                return Ok(ch);
+            }
+
+            Ok(Value::Null)
+        }
+        Value::Null => Ok(Value::Null),
+        _ => Err(SolvraError::Internal(format!(
+            "core_index received unsupported collection type {}",
+            collection.type_name()
+        ))),
+    }
 }
 
 #[derive(Clone, Default)]
@@ -167,43 +355,193 @@ impl Builtins {
     }
 }
 
-fn builtin_println(args: &[Value]) -> SolvraResult<Value> {
-    if let Some(value) = args.first() {
-        println!("{}", value_to_string(value));
-    } else {
-        println!();
-    }
-    Ok(Value::Null)
+fn builtin_println(_builtins: &Builtins, args: &[Value]) -> SolvraResult<Value> {
+    legacy_builtins::io_println(_builtins, args)
 }
 
-fn builtin_sleep(args: &[Value]) -> SolvraResult<Value> {
-    let millis = args.get(0).and_then(extract_integer).unwrap_or(0);
-    if millis > 0 {
-        thread::sleep(Duration::from_millis(millis as u64));
-    }
-    Ok(Value::Null)
+fn builtin_input(_builtins: &Builtins, args: &[Value]) -> SolvraResult<Value> {
+    legacy_builtins::io_input(_builtins, args)
 }
 
-fn value_to_string(value: &Value) -> String {
+fn builtin_inp(builtins: &Builtins, args: &[Value]) -> SolvraResult<Value> {
+    legacy_builtins::io_inp(builtins, args)
+}
+
+fn builtin_sleep(_builtins: &Builtins, args: &[Value]) -> SolvraResult<Value> {
+    legacy_builtins::io_sleep(_builtins, args)
+}
+
+fn resolve_json_path<'a>(value: &'a JsonValue, path: &str) -> Option<JsonValue> {
+    if path.is_empty() {
+        return Some(value.clone());
+    }
+
+    let mut current = value;
+    for segment in path.split('.') {
+        if segment.is_empty() {
+            continue;
+        }
+        current = match current {
+            JsonValue::Object(map) => map.get(segment)?,
+            JsonValue::Array(items) => {
+                let index: usize = segment.parse().ok()?;
+                items.get(index)?
+            }
+            _ => return None,
+        };
+    }
+    Some(current.clone())
+}
+
+fn json_to_value(value: JsonValue) -> Value {
     match value {
-        Value::Null => "null".into(),
-        Value::Boolean(flag) => flag.to_string(),
-        Value::Integer(int) => int.to_string(),
-        Value::Float(float) => {
-            if float.fract() == 0.0 {
-                format!("{:.0}", float)
+        JsonValue::Null => Value::Null,
+        JsonValue::Bool(flag) => Value::Boolean(flag),
+        JsonValue::Number(num) => {
+            if let Some(int) = num.as_i64() {
+                Value::Integer(int)
+            } else if let Some(float) = num.as_f64() {
+                Value::Float(float)
             } else {
-                float.to_string()
+                Value::Null
             }
         }
-        Value::String(text) => text.clone(),
-        Value::Object(_) => "<object>".into(),
+        JsonValue::String(text) => Value::String(text),
+        JsonValue::Array(_) | JsonValue::Object(_) => serde_json::to_string(&value)
+            .map(Value::String)
+            .unwrap_or(Value::Null),
     }
+}
+
+fn resolve_file_path(original: &str) -> Option<PathBuf> {
+    let provided = PathBuf::from(original);
+    if provided.exists() {
+        return Some(canonicalize_path(&provided));
+    }
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if let Some(root) = manifest_dir.parent() {
+        let direct = root.join(original);
+        if direct.exists() {
+            return Some(canonicalize_path(&direct));
+        }
+        let solvra_ai = root.join("solvra_ai").join(original);
+        if solvra_ai.exists() {
+            return Some(canonicalize_path(&solvra_ai));
+        }
+    }
+
+    None
+}
+
+fn canonicalize_path(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn extract_integer(value: &Value) -> Option<i64> {
     match value {
         Value::Integer(int) => Some(*int),
         _ => None,
+    }
+}
+
+fn parse_toml_value(content: &str, path: &Path) -> SolvraResult<toml::Value> {
+    match toml::from_str(content) {
+        Ok(value) => Ok(value),
+        Err(first_err) => {
+            let sanitized = sanitize_toml(content);
+            toml::from_str(&sanitized).map_err(|_| {
+                SolvraError::Internal(format!(
+                    "failed to parse toml file {}: {first_err}",
+                    path.display()
+                ))
+            })
+        }
+    }
+}
+
+fn sanitize_toml(input: &str) -> String {
+    input
+        .lines()
+        .map(|line| sanitize_line(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn sanitize_line(line: &str) -> String {
+    if let Some(pos) = line.rfind('"') {
+        let remainder = &line[pos + 1..];
+        let trimmed = remainder.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with('#') {
+            return line[..=pos].to_string();
+        }
+    }
+    line.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value as JsonValue;
+    use std::thread::sleep;
+    use std::time::Duration;
+    use tempfile::tempdir;
+
+    #[test]
+    fn toml_cache_reuses_and_refreshes() {
+        let dir = tempdir().expect("create temp dir");
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[agents.eolas]
+provider = "openai"
+model = "gpt-4o-mini"
+"#,
+        )
+        .expect("write initial toml");
+
+        let builtins = Builtins::default();
+        let arg_path = path.to_string_lossy().to_string();
+
+        let first = builtins
+            .invoke_sync("toml::load_file", &[Value::String(arg_path.clone())])
+            .expect("load toml");
+        let first_json: JsonValue = match first {
+            Value::String(text) => serde_json::from_str(&text).expect("parse json"),
+            other => panic!("expected string, got {other:?}"),
+        };
+        assert_eq!(first_json["agents"]["eolas"]["provider"], "openai");
+
+        // Second call should use cache but still return same content.
+        let second = builtins
+            .invoke_sync("toml::load_file", &[Value::String(arg_path.clone())])
+            .expect("load toml from cache");
+        let second_json: JsonValue = match second {
+            Value::String(text) => serde_json::from_str(&text).expect("parse json"),
+            other => panic!("expected string, got {other:?}"),
+        };
+        assert_eq!(second_json, first_json);
+
+        // Modify file and ensure cache refreshes.
+        sleep(Duration::from_millis(20));
+        fs::write(
+            &path,
+            r#"
+[agents.eolas]
+provider = "anthropic"
+model = "claude"
+"#,
+        )
+        .expect("write updated toml");
+
+        let third = builtins
+            .invoke_sync("toml::load_file", &[Value::String(arg_path)])
+            .expect("reload toml after change");
+        let third_json: JsonValue = match third {
+            Value::String(text) => serde_json::from_str(&text).expect("parse json"),
+            other => panic!("expected string, got {other:?}"),
+        };
+        assert_eq!(third_json["agents"]["eolas"]["provider"], "anthropic");
     }
 }

@@ -1,0 +1,32 @@
+//==================================================
+// File: lib/std/io.svs
+//==================================================
+// Author: ZobieLabs
+// License: Apache License 2.0
+// Goal: Provide SolvraScript IO helpers backed by runtime hooks
+// Objective: Offer print/input utilities while stdlib migration completes
+//==================================================
+
+//==================================================
+// Section 1.0 - Overview
+//==================================================
+// @TODO[StdlibPhase1]: Expand with formatting utilities once formatter API lands.
+// @ZNOTE[Compatibility]: Functions forward to host hooks so legacy scripts keep working.
+
+export fn print(value) {
+    legacy_io_print(value);
+    return null;
+}
+
+export fn println(value) {
+    legacy_io_println(value);
+    return null;
+}
+
+export fn input(prompt = "> ") {
+    return legacy_io_input(prompt);
+}
+
+export fn inp(prompt = "> ") {
+    return legacy_io_input(prompt);
+}

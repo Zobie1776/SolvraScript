@@ -1,0 +1,323 @@
+//=====================================================
+// File: http.svs
+//=====================================================
+// Author: Zachariah Obie
+// License: Apache License 2.0
+// Goal: Provide HTTP/HTTPS client operations for making web requests
+// Objective: Enable GET, POST, PUT, DELETE requests with headers, JSON helpers,
+//            timeouts, and retry logic. All operations integrate with sec/sandbox.
+//=====================================================
+
+//=====================================================
+// Import & Modules
+//=====================================================
+// No imports - this is a base module
+
+//=====================================================
+// Section 1.0: HTTP Request Options
+//=====================================================
+
+fn with_headers(options, headers) {
+    //  Add HTTP headers to request options
+    //  options: map - Request options object
+    //  headers: map - Headers to add (key-value pairs)
+    //  Returns: map - Modified options with headers
+
+    if (options == null) {
+        options = {};
+    }
+    options["headers"] = headers;
+    return options;
+}
+
+fn with_timeout(options, ms) {
+    //  Set request timeout in milliseconds
+    //  options: map - Request options object
+    //  ms: int - Timeout in milliseconds
+    //  Returns: map - Modified options with timeout
+
+    if (options == null) {
+        options = {};
+    }
+    options["timeout_ms"] = ms;
+    return options;
+}
+
+fn with_retries(options, count) {
+    //  Set number of retry attempts for failed requests
+    //  options: map - Request options object
+    //  count: int - Number of retries (max 5)
+    //  Returns: map - Modified options with retry count
+
+    if (options == null) {
+        options = {};
+    }
+    if (count > 5) {
+        count = 5;  //  Enforce maximum retry limit
+    }
+    options["retries"] = count;
+    return options;
+}
+
+/*---------------------------------------------------------------------------
+
+HTTP Options Builder Pattern:
+These functions use a builder pattern to construct request options maps.
+Each function returns a modified copy of the options, allowing chaining:
+
+  let opts = with_headers({}, {"Authorization": "Bearer token"});
+  opts = with_timeout(opts, 5000);
+  opts = with_retries(opts, 3);
+
+This pattern provides flexibility while maintaining immutability where practical.
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 2.0: Core HTTP Methods
+//=====================================================
+
+fn get(url, options) {
+    //  Perform HTTP GET request
+    //  url: string - Target URL
+    //  options: map - Request options (headers, timeout, retries)
+    //  Returns: Response - {status: int, headers: map, body: string, ok: bool, time_ms: int}
+
+    return request("GET", url, options);
+}
+
+fn post(url, body, options) {
+    //  Perform HTTP POST request with body
+    //  url: string - Target URL
+    //  body: any - Request body (will be JSON-encoded if map/array)
+    //  options: map - Request options
+    //  Returns: Response
+
+    if (options == null) {
+        options = {};
+    }
+    options["body"] = body;
+    return request("POST", url, options);
+}
+
+fn put(url, body, options) {
+    //  Perform HTTP PUT request with body
+    //  url: string - Target URL
+    //  body: any - Request body
+    //  options: map - Request options
+    //  Returns: Response
+
+    if (options == null) {
+        options = {};
+    }
+    options["body"] = body;
+    return request("PUT", url, options);
+}
+
+fn delete(url, options) {
+    //  Perform HTTP DELETE request
+    //  url: string - Target URL
+    //  options: map - Request options
+    //  Returns: Response
+
+    return request("DELETE", url, options);
+}
+
+/*---------------------------------------------------------------------------
+
+HTTP Method Wrappers:
+These functions wrap the generic request() function with method-specific
+semantics. GET and DELETE have no body, while POST and PUT accept a body parameter.
+
+All methods return a standardized Response object with fields:
+- status: HTTP status code (200, 404, 500, etc.)
+- headers: Response headers as map
+- body: Response body as string
+- ok: Boolean (true if status 200-299)
+- time_ms: Request duration in milliseconds
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 3.0: Generic Request Function
+//=====================================================
+
+fn request(method, url, options) {
+    //  Generic HTTP request function (calls host bridge)
+    //  method: string - HTTP method ("GET", "POST", "PUT", "DELETE")
+    //  url: string - Target URL
+    //  options: map - Request options
+    //  Returns: Response
+
+    //  Validate method
+    if (method != "GET" && method != "POST" && method != "PUT" && method != "DELETE") {
+        error("Invalid HTTP method: " + method);
+    }
+
+    //  Extract options with defaults
+    let headers = {};
+    let timeout_ms = 10000;  //  Default: 10 second timeout
+    let retries = 0;
+    let body = null;
+
+    if (options != null) {
+        if (has_key(options, "headers")) {
+            headers = options["headers"];
+        }
+        if (has_key(options, "timeout_ms")) {
+            timeout_ms = options["timeout_ms"];
+        }
+        if (has_key(options, "retries")) {
+            retries = options["retries"];
+        }
+        if (has_key(options, "body")) {
+            body = options["body"];
+        }
+    }
+
+    //  Convert body to JSON if needed
+    let body_bytes = "";
+    if (body != null) {
+        if (typeof(body) == "map" || typeof(body) == "array") {
+            body_bytes = to_json(body);
+            //  Set Content-Type if not already set
+            if (!has_key(headers, "Content-Type")) {
+                headers["Content-Type"] = "application/json";
+            }
+        } else {
+            body_bytes = str(body);
+        }
+    }
+
+    //  Call host bridge function
+    //  @TODO: Replace with actual host bridge call
+    //  For now, returns mock response
+    let response = __host_http_request(method, url, headers, body_bytes, timeout_ms);
+
+    //  Add convenience fields
+    response["ok"] = response["status"] >= 200 && response["status"] < 300;
+
+    return response;
+}
+
+/*---------------------------------------------------------------------------
+
+Host Bridge Integration:
+The request() function is the bridge point to the host implementation.
+It calls __host_http_request() which is implemented in SolvraCore (Rust).
+
+Host function signature:
+  __host_http_request(
+      method: string,
+      url: string,
+      headers: map,
+      body: bytes,
+      timeout_ms: int
+  ) -> {status: int, headers: map, body: bytes, time_ms: int}
+
+Error handling is done at the host level. Errors are propagated as exceptions
+to SolvraScript, which can be caught with try/catch (Phase 7 feature).
+
+Retry logic is implemented here in SolvraScript by wrapping the host call
+in a loop (not shown in stub - to be implemented in Phase 1).
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 4.0: JSON Helpers
+//=====================================================
+
+fn parse_json(response) {
+    //  Parse JSON response body
+    //  response: Response - HTTP response object
+    //  Returns: any - Parsed JSON (map, array, or primitive)
+
+    if (response == null || !has_key(response, "body")) {
+        error("Invalid response object");
+    }
+
+    let body = response["body"];
+    if (body == "") {
+        return null;
+    }
+
+    //  Use builtin JSON parser
+    return json_parse(body);
+}
+
+fn to_json(data) {
+    //  Convert data to JSON string
+    //  data: any - Data to encode (map, array, or primitive)
+    //  Returns: string - JSON representation
+
+    //  Use builtin JSON encoder
+    return json_encode(data);
+}
+
+/*---------------------------------------------------------------------------
+
+JSON Helpers:
+These convenience functions wrap the builtin json_parse() and json_encode()
+functions with HTTP-specific semantics (operating on Response objects).
+
+JSON parsing errors will raise exceptions from the builtin functions.
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 5.0: Mock Host Bridge (Development Only)
+//=====================================================
+
+fn __host_http_request(method, url, headers, body, timeout_ms) {
+    //  MOCK IMPLEMENTATION - Replace with real host bridge
+    //  This stub returns a mock response for development/testing
+
+    println("[MOCK] HTTP " + method + " " + url);
+
+    return {
+        "status": 200,
+        "headers": {"Content-Type": "application/json"},
+        "body": "{\"message\": \"Mock response\"}",
+        "time_ms": 42
+    };
+}
+
+/*---------------------------------------------------------------------------
+
+Development Mock:
+The __host_http_request() function above is a temporary mock for development.
+When integrated with SolvraCore, this function will be removed and replaced
+with the actual host bridge call.
+
+The real implementation will:
+1. Validate sandbox permissions (net.http.client capability)
+2. Perform DNS resolution
+3. Establish TCP/TLS connection
+4. Send HTTP request
+5. Receive HTTP response
+6. Enforce timeout
+7. Return structured response
+
+*/---------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------
+//  End of http.svs
+//  This module provides HTTP client functionality for SolvraScript.
+//
+//  @TODO Phase 1:
+//  - Implement retry logic with exponential backoff
+//  - Add connection pooling support
+//  - Implement proper error handling
+//  - Integrate with sec/sandbox capability checks
+//  - Add streaming response support for large downloads
+//
+//  @ZNOTES:
+//  - All network operations require net.http.client capability
+//  - DNS caching is handled at host level (5 minute TTL)
+//  - TLS certificate validation always enabled
+//  - Maximum redirect limit: 5 (handled by host)
+//---------------------------------------------------------------------------
+
+//=====================================================
+// End of file
+//=====================================================

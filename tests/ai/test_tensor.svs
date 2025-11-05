@@ -1,0 +1,61 @@
+import <ai_tensor>;
+import <io>;
+
+fn test_matmul() {
+    let mut A = [];
+    let mut row1 = [];
+    row1 = push(row1, 1);
+    row1 = push(row1, 2);
+    A = push(A, row1);
+    let mut row2 = [];
+    row2 = push(row2, 3);
+    row2 = push(row2, 4);
+    A = push(A, row2);
+
+    let mut B = [];
+    let mut row3 = [];
+    row3 = push(row3, 5);
+    row3 = push(row3, 6);
+    B = push(B, row3);
+    let mut row4 = [];
+    row4 = push(row4, 7);
+    row4 = push(row4, 8);
+    B = push(B, row4);
+
+    let C = ai_tensor::matmul(A, B);
+    
+    let mut expected = [];
+    let mut row5 = [];
+    row5 = push(row5, 19);
+    row5 = push(row5, 22);
+    expected = push(expected, row5);
+    let mut row6 = [];
+    row6 = push(row6, 43);
+    row6 = push(row6, 50);
+    expected = push(expected, row6);
+
+    let mut pass = true;
+    let mut i = 0;
+    while i < 2 {
+        let mut j = 0;
+        while j < 2 {
+            if C[i][j] != expected[i][j] {
+                pass = false;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    if pass {
+        io::println("matmul test passed");
+    } else {
+        io::println("matmul test failed");
+    }
+}
+
+fn main() {
+    test_matmul();
+}
+
+main();

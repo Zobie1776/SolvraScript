@@ -908,7 +908,7 @@ impl Parser {
                     args,
                     position: start_pos,
                 };
-            } else if kind == &TokenKind::Dot {
+            } else if matches!(kind, TokenKind::Dot | TokenKind::DoubleColon) {
                 let start_pos = self.current_position();
                 self.advance();
                 let property = self.consume_identifier("Expected property name after '.'")?;
@@ -995,6 +995,34 @@ impl Parser {
                 self.advance();
                 Ok(Expr::Identifier { name, position })
             }
+            TokenKind::StringType => {
+                self.advance();
+                Ok(Expr::Identifier {
+                    name: "string".to_string(),
+                    position,
+                })
+            }
+            TokenKind::IntType => {
+                self.advance();
+                Ok(Expr::Identifier {
+                    name: "int".to_string(),
+                    position,
+                })
+            }
+            TokenKind::FloatType => {
+                self.advance();
+                Ok(Expr::Identifier {
+                    name: "float".to_string(),
+                    position,
+                })
+            }
+            TokenKind::BoolType => {
+                self.advance();
+                Ok(Expr::Identifier {
+                    name: "bool".to_string(),
+                    position,
+                })
+            }
             TokenKind::LeftParen => {
                 self.advance();
                 let expr = self.parse_expression()?;
@@ -1003,28 +1031,17 @@ impl Parser {
             }
             TokenKind::LeftBracket => {
                 self.advance();
-                self.skip_layout_tokens();
                 let mut elements = Vec::new();
                 if !self.check(&TokenKind::RightBracket) {
                     loop {
-                        self.skip_layout_tokens();
-                        if self.check(&TokenKind::RightBracket) {
-                            break;
-                        }
                         elements.push(self.parse_expression()?);
-                        self.skip_layout_tokens();
                         if !self.check(&TokenKind::Comma) {
                             break;
                         }
                         self.advance();
-                        self.skip_layout_tokens();
                     }
                 }
-                self.skip_layout_tokens();
-                self.consume(
-                    &TokenKind::RightBracket,
-                    "Expected ']' after array elements",
-                )?;
+                self.consume(&TokenKind::RightBracket, "Expected ']' after array elements")?;
                 Ok(Expr::Literal {
                     value: Literal::Array(elements),
                     position,
@@ -1331,6 +1348,22 @@ impl Parser {
                 let name = name.clone();
                 self.advance();
                 Ok(name)
+            }
+            TokenKind::StringType => {
+                self.advance();
+                Ok("string".to_string())
+            }
+            TokenKind::IntType => {
+                self.advance();
+                Ok("int".to_string())
+            }
+            TokenKind::FloatType => {
+                self.advance();
+                Ok("float".to_string())
+            }
+            TokenKind::BoolType => {
+                self.advance();
+                Ok("bool".to_string())
             }
             _ => Err(ParseError::UnexpectedToken {
                 expected: "identifier".to_string(),

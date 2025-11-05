@@ -1,0 +1,233 @@
+//=====================================================
+// File: sec_jwt_roundtrip.svs
+//=====================================================
+// Author: Zachariah Obie
+// License: Apache License 2.0
+// Goal: Demonstrate JWT token creation and verification
+// Objective: Show how to use <sec/jwt> for stateless authentication
+//=====================================================
+
+//=====================================================
+// Import & Modules
+//=====================================================
+import { sign_jwt, verify_jwt, decode_jwt } from <sec/jwt>;
+import { sha256 } from <sec/hash>;
+
+//=====================================================
+// Section 1.0: Token Creation
+//=====================================================
+
+fn create_user_token(user_id, name, role) {
+    //  Create JWT token for authenticated user
+    //  user_id: string - Unique user identifier
+    //  name: string - User's display name
+    //  role: string - User's role (admin, user, etc.)
+    //  Returns: string - JWT token
+
+    println("Creating JWT token...");
+
+    //  Define payload (claims)
+    let payload = {
+        "sub": user_id,         //  Subject (user ID)
+        "name": name,           //  User name
+        "role": role,           //  User role
+        "iss": "solvra_auth",   //  Issuer
+        "aud": "solvra_api"     //  Audience
+    };
+
+    //  Generate secret key (in production, load from secure config)
+    let secret = "super_secret_key_min_32_bytes_long_for_security";
+
+    //  Sign JWT with HS256, expires in 1 hour
+    let token = sign_jwt(payload, secret, "HS256", 3600);
+
+    println("Token created: " + substr(token, 0, 50) + "...");
+
+    return token;
+}
+
+//=====================================================
+// Section 2.0: Token Verification
+//=====================================================
+
+fn verify_user_token(token) {
+    //  Verify and decode JWT token
+    //  token: string - JWT token to verify
+    //  Returns: map - Decoded payload if valid, null if invalid
+
+    println("");
+    println("Verifying JWT token...");
+
+    let secret = "super_secret_key_min_32_bytes_long_for_security";
+
+    //  Verify token signature and expiration
+    let payload = verify_jwt(token, secret, "HS256");
+
+    if (payload != null) {
+        println("Token is VALID");
+        println("  User ID: " + payload["sub"]);
+        println("  Name: " + payload["name"]);
+        println("  Role: " + payload["role"]);
+        println("  Issued at: " + str(payload["iat"]));
+        println("  Expires at: " + str(payload["exp"]));
+        return payload;
+    } else {
+        println("Token is INVALID or EXPIRED");
+        return null;
+    }
+}
+
+//=====================================================
+// Section 3.0: Token Inspection (Unverified)
+//=====================================================
+
+fn inspect_token(token) {
+    //  Decode JWT without verification (for debugging only)
+    //  WARNING: Do not trust unverified tokens!
+
+    println("");
+    println("Inspecting token (unverified)...");
+
+    let payload = decode_jwt(token);
+
+    println("  Header: " + str(payload["header"]));
+    println("  Payload: " + str(payload["payload"]));
+    println("  Signature: " + substr(payload["signature"], 0, 20) + "...");
+}
+
+//=====================================================
+// Section 4.0: Example API Endpoint
+//=====================================================
+
+fn api_endpoint(token) {
+    //  Simulate API endpoint that requires authentication
+    //  token: string - JWT token from Authorization header
+
+    println("");
+    println("=== API Request ===");
+
+    //  Verify token
+    let payload = verify_user_token(token);
+
+    if (payload == null) {
+        println("ERROR: Unauthorized - Invalid token");
+        return {"status": 401, "error": "Unauthorized"};
+    }
+
+    //  Check role-based access
+    if (payload["role"] == "admin") {
+        println("Access GRANTED: Admin user");
+        return {"status": 200, "data": "Secret admin data"};
+    } else if (payload["role"] == "user") {
+        println("Access GRANTED: Regular user");
+        return {"status": 200, "data": "Public user data"};
+    } else {
+        println("Access DENIED: Unknown role");
+        return {"status": 403, "error": "Forbidden"};
+    }
+}
+
+//=====================================================
+// Section 5.0: Main Demo
+//=====================================================
+
+fn main() {
+    println("JWT Authentication Demo");
+    println("=======================");
+    println("");
+
+    //  Scenario 1: Admin user
+    println("--- Scenario 1: Admin User ---");
+    let admin_token = create_user_token("user_001", "Alice Admin", "admin");
+    let admin_response = api_endpoint(admin_token);
+    println("Response: " + str(admin_response));
+
+    println("");
+    println("");
+
+    //  Scenario 2: Regular user
+    println("--- Scenario 2: Regular User ---");
+    let user_token = create_user_token("user_002", "Bob User", "user");
+    let user_response = api_endpoint(user_token);
+    println("Response: " + str(user_response));
+
+    println("");
+    println("");
+
+    //  Scenario 3: Invalid token
+    println("--- Scenario 3: Invalid Token ---");
+    let fake_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.signature";
+    let fake_response = api_endpoint(fake_token);
+    println("Response: " + str(fake_response));
+
+    println("");
+    println("");
+
+    //  Scenario 4: Token inspection
+    println("--- Scenario 4: Token Inspection ---");
+    inspect_token(admin_token);
+
+    println("");
+    println("Demo complete!");
+}
+
+//  Run demo
+main();
+
+/*---------------------------------------------------------------------------
+
+Example Output:
+  JWT Authentication Demo
+  =======================
+
+  --- Scenario 1: Admin User ---
+  Creating JWT token...
+  Token created: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiO...
+
+  === API Request ===
+  Verifying JWT token...
+  Token is VALID
+    User ID: user_001
+    Name: Alice Admin
+    Role: admin
+    Issued at: 1730736896
+    Expires at: 1730740496
+  Access GRANTED: Admin user
+  Response: {status: 200, data: "Secret admin data"}
+
+  --- Scenario 2: Regular User ---
+  [Similar output for regular user]
+
+  --- Scenario 3: Invalid Token ---
+  Verifying JWT token...
+  Token is INVALID or EXPIRED
+  ERROR: Unauthorized - Invalid token
+  Response: {status: 401, error: "Unauthorized"}
+
+JWT Use Cases:
+1. Stateless authentication (no session storage)
+2. API authentication (bearer tokens)
+3. Single Sign-On (SSO) across services
+4. Microservices authorization
+5. Mobile app authentication
+
+Security Best Practices:
+1. Use strong secrets (>= 32 bytes)
+2. Set reasonable expiration times
+3. Rotate secrets regularly
+4. Use HTTPS for token transmission
+5. Store secrets securely (env vars, vaults)
+6. Consider using RS256 for public APIs
+
+Next Steps:
+1. Implement token refresh mechanism
+2. Add token revocation (blacklist)
+3. Integrate with <web/http> for API auth
+4. Add RS256 support with public/private keys
+5. Implement OAuth2 flows
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// End of file
+//=====================================================

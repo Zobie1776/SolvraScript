@@ -212,6 +212,7 @@ struct FunctionCompiler<'a> {
     next_slot: u32,
     max_slot: u32,
     param_count: u16,
+    loop_stack: Vec<LoopFrame>,
 }
 
 impl<'a> FunctionCompiler<'a> {
@@ -227,6 +228,7 @@ impl<'a> FunctionCompiler<'a> {
             next_slot: 0,
             max_slot: 0,
             param_count: decl.params.len() as u16,
+            loop_stack: Vec::new(),
         };
 
         compiler.begin_scope();
@@ -286,6 +288,12 @@ impl<'a> FunctionCompiler<'a> {
             Stmt::While {
                 condition, body, ..
             } => self.compile_while_stmt(condition, body),
+            Stmt::For {
+                variable,
+                iterable,
+                body,
+                ..
+            } => self.compile_for_stmt(variable, iterable, body),
             Stmt::Return { value, .. } => {
                 if let Some(expr) = value {
                     self.compile_expr(expr)?;
@@ -296,6 +304,22 @@ impl<'a> FunctionCompiler<'a> {
                 }
                 self.instructions
                     .push(Instruction::new(Opcode::Return, Vec::new()));
+                Ok(())
+            }
+            Stmt::Break { label, .. } => {
+                if label.is_some() {
+                    bail!("labeled break is not supported yet");
+                }
+                let jump_index = self.emit_jump(Opcode::Jump);
+                self.register_break(jump_index)?;
+                Ok(())
+            }
+            Stmt::Continue { label, .. } => {
+                if label.is_some() {
+                    bail!("labeled continue is not supported yet");
+                }
+                let jump_index = self.emit_jump(Opcode::Jump);
+                self.register_continue(jump_index)?;
                 Ok(())
             }
             other => bail!("unsupported statement in function body: {other:?}"),
@@ -342,23 +366,60 @@ impl<'a> FunctionCompiler<'a> {
         let loop_start = self.instructions.len();
         self.compile_expr(condition)?;
         let exit_jump = self.emit_jump(Opcode::JumpIfFalse);
+        self.begin_loop(loop_start);
         self.begin_scope();
         self.compile_stmt(body)?;
         self.end_scope();
         self.instructions
             .push(Instruction::new(Opcode::Jump, vec![loop_start as u32]));
         self.patch_jump(exit_jump);
+        let break_target = self.instructions.len();
+        self.end_loop(break_target);
+        Ok(())
+    }
+
+    fn compile_for_stmt(&mut self, variable: &str, iterable: &Expr, body: &Stmt) -> Result<()> {
+        let elements: Vec<&Expr> = match iterable {
+            Expr::List { elements, .. } => elements.iter().collect(),
+            Expr::Literal { value, .. } => match value {
+                Literal::Array(items) => items.iter().collect(),
+                _ => bail!("for loops currently support literal list iterables only"),
+            },
+            _ => bail!("for loops currently support literal list iterables only"),
+        };
+
+        self.begin_scope();
+        let slot = self.declare_local(variable)?;
+        for element in elements {
+            self.compile_expr(element)?;
+            self.instructions
+                .push(Instruction::new(Opcode::StoreVar, vec![slot]));
+            self.compile_stmt(body)?;
+        }
+        self.end_scope();
         Ok(())
     }
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<()> {
         match expr {
-            Expr::Literal { value, .. } => {
-                let index = self.program.literal_constant(value)?;
-                self.instructions
-                    .push(Instruction::new(Opcode::LoadConst, vec![index]));
-                Ok(())
-            }
+            Expr::Literal { value, .. } => match value {
+                Literal::Array(elements) => {
+                    for element in elements {
+                        self.compile_expr(element)?;
+                    }
+                    self.instructions.push(Instruction::new(
+                        Opcode::MakeList,
+                        vec![elements.len() as u32],
+                    ));
+                    Ok(())
+                }
+                _ => {
+                    let index = self.program.literal_constant(value)?;
+                    self.instructions
+                        .push(Instruction::new(Opcode::LoadConst, vec![index]));
+                    Ok(())
+                }
+            },
             Expr::Identifier { name, .. } => {
                 let slot = self.resolve_local(name)?;
                 self.instructions
@@ -483,6 +544,14 @@ impl<'a> FunctionCompiler<'a> {
                     .push(Instruction::new(Opcode::Await, Vec::new()));
                 Ok(())
             }
+            Expr::Index { object, index, .. } => {
+                self.compile_expr(object)?;
+                self.compile_expr(index)?;
+                let name_index = self.program.ensure_string_constant("core_index");
+                self.instructions
+                    .push(Instruction::new(Opcode::CallBuiltin, vec![name_index, 2]));
+                Ok(())
+            }
             other => bail!("unsupported expression type: {other:?}"),
         }
     }
@@ -531,28 +600,66 @@ impl<'a> FunctionCompiler<'a> {
             self.compile_expr(arg)?;
         }
 
+        match self.resolve_call_target(callee)? {
+            ResolvedCallTarget::Function(index) => {
+                let opcode = match mode {
+                    CallMode::Normal => Opcode::Call,
+                    CallMode::Async => Opcode::CallAsync,
+                };
+                self.instructions.push(Instruction::new(
+                    opcode,
+                    vec![index as u32, args.len() as u32],
+                ));
+                Ok(())
+            }
+            ResolvedCallTarget::Builtin(name) => {
+                let name_index = self.program.ensure_string_constant(&name);
+                self.instructions.push(Instruction::new(
+                    Opcode::CallBuiltin,
+                    vec![name_index, args.len() as u32],
+                ));
+                Ok(())
+            }
+        }
+    }
+
+    fn resolve_call_target(&mut self, callee: &Expr) -> Result<ResolvedCallTarget> {
         match callee {
             Expr::Identifier { name, .. } => {
                 if let Some(index) = self.program.resolve_function(name) {
-                    let opcode = match mode {
-                        CallMode::Normal => Opcode::Call,
-                        CallMode::Async => Opcode::CallAsync,
-                    };
-                    self.instructions.push(Instruction::new(
-                        opcode,
-                        vec![index as u32, args.len() as u32],
-                    ));
-                    Ok(())
+                    Ok(ResolvedCallTarget::Function(index))
                 } else {
-                    let name_index = self.program.ensure_string_constant(name);
-                    self.instructions.push(Instruction::new(
-                        Opcode::CallBuiltin,
-                        vec![name_index, args.len() as u32],
-                    ));
-                    Ok(())
+                    Ok(ResolvedCallTarget::Builtin(name.clone()))
                 }
             }
-            _ => bail!("unsupported call target"),
+            Expr::Member { .. } => {
+                let name = self.flatten_member_name(callee)?;
+                Ok(ResolvedCallTarget::Builtin(name))
+            }
+            other => bail!("unsupported call target: {other:?}"),
+        }
+    }
+
+    fn flatten_member_name(&self, expr: &Expr) -> Result<String> {
+        let mut segments = Vec::new();
+        self.collect_member_segments(expr, &mut segments)?;
+        Ok(segments.join("::"))
+    }
+
+    fn collect_member_segments(&self, expr: &Expr, segments: &mut Vec<String>) -> Result<()> {
+        match expr {
+            Expr::Identifier { name, .. } => {
+                segments.push(name.clone());
+                Ok(())
+            }
+            Expr::Member {
+                object, property, ..
+            } => {
+                self.collect_member_segments(object, segments)?;
+                segments.push(property.clone());
+                Ok(())
+            }
+            other => bail!("unsupported member access in call target: {other:?}"),
         }
     }
 
@@ -571,6 +678,48 @@ impl<'a> FunctionCompiler<'a> {
                 instruction.operands[0] = target;
             }
         }
+    }
+
+    fn patch_jump_to(&mut self, index: usize, target: usize) {
+        if let Some(instruction) = self.instructions.get_mut(index) {
+            if instruction.operands.is_empty() {
+                instruction.operands.push(target as u32);
+            } else {
+                instruction.operands[0] = target as u32;
+            }
+        }
+    }
+
+    fn begin_loop(&mut self, continue_target: usize) {
+        self.loop_stack.push(LoopFrame {
+            continue_target,
+            breaks: Vec::new(),
+        });
+    }
+
+    fn end_loop(&mut self, break_target: usize) {
+        if let Some(frame) = self.loop_stack.pop() {
+            for index in frame.breaks {
+                self.patch_jump_to(index, break_target);
+            }
+        }
+    }
+
+    fn register_break(&mut self, jump_index: usize) -> Result<()> {
+        let Some(frame) = self.loop_stack.last_mut() else {
+            bail!("'break' used outside of loop");
+        };
+        frame.breaks.push(jump_index);
+        Ok(())
+    }
+
+    fn register_continue(&mut self, jump_index: usize) -> Result<()> {
+        let continue_target = match self.loop_stack.last() {
+            Some(frame) => frame.continue_target,
+            None => bail!("'continue' used outside of loop"),
+        };
+        self.patch_jump_to(jump_index, continue_target);
+        Ok(())
     }
 
     fn resolve_local(&self, name: &str) -> Result<u32> {
@@ -621,6 +770,16 @@ impl<'a> FunctionCompiler<'a> {
 #[derive(Clone, Copy)]
 struct LocalBinding {
     slot: u32,
+}
+
+struct LoopFrame {
+    continue_target: usize,
+    breaks: Vec<usize>,
+}
+
+enum ResolvedCallTarget {
+    Function(usize),
+    Builtin(String),
 }
 
 #[derive(Clone, Copy)]

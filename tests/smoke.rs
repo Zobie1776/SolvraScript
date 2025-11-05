@@ -118,6 +118,19 @@ fn test_const_requires_initializer() {
 }
 
 #[test]
+fn test_string_literals_with_colons_and_pipes() {
+    tokenize_and_parse(r#"print("key:value");"#).unwrap();
+    tokenize_and_parse(r#"print("hello | world");"#).unwrap();
+    tokenize_and_parse(r#"print("x/y/z");"#).unwrap();
+}
+
+#[test]
+fn test_double_colon_namespace_access() {
+    let program = tokenize_and_parse("let cfg = toml::load();").unwrap();
+    assert!(matches!(program.statements[0], Stmt::VariableDecl { .. }));
+}
+
+#[test]
 fn test_else_if_chain() {
     let source = "if x { y = 1; } else if y { y = 2; } else { y = 3; }";
     let program = tokenize_and_parse(source).unwrap();

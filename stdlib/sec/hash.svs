@@ -1,0 +1,342 @@
+//=====================================================
+// File: hash.svs
+//=====================================================
+// Author: Zachariah Obie
+// License: Apache License 2.0
+// Goal: Provide cryptographic hash functions for security operations
+// Objective: Implement SHA-256, SHA-512, BLAKE3, and HMAC for message authentication
+//            All operations use constant-time comparisons where applicable.
+//=====================================================
+
+//=====================================================
+// Import & Modules
+//=====================================================
+// No imports - this is a base security module
+
+//=====================================================
+// Section 1.0: SHA-256 Hash Function
+//=====================================================
+
+fn sha256(data) {
+    //  Compute SHA-256 hash of data
+    //  data: string - Input data to hash
+    //  Returns: string - Hex-encoded hash (64 characters)
+
+    let bytes_result = __host_crypto_sha256(data);
+    return bytes_to_hex(bytes_result);
+}
+
+fn sha256_bytes(data) {
+    //  Compute SHA-256 hash, returning raw bytes
+    //  data: bytes - Input data to hash
+    //  Returns: bytes - Raw hash bytes (32 bytes)
+
+    return __host_crypto_sha256(data);
+}
+
+/*---------------------------------------------------------------------------
+
+SHA-256 Implementation:
+SHA-256 is a cryptographic hash function from the SHA-2 family, standardized
+by NIST. It produces a 256-bit (32-byte) hash.
+
+Properties:
+- Deterministic: Same input always produces same output
+- One-way: Cannot reverse hash to find input
+- Collision-resistant: Hard to find two inputs with same hash
+- Avalanche effect: Small change in input causes large change in output
+
+Use cases:
+- Password hashing (use KDF instead for passwords!)
+- File integrity verification
+- Digital signatures
+- Blockchain proof-of-work
+
+Performance: ~500 MB/s on modern CPUs
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 2.0: SHA-512 Hash Function
+//=====================================================
+
+fn sha512(data) {
+    //  Compute SHA-512 hash of data
+    //  data: string - Input data to hash
+    //  Returns: string - Hex-encoded hash (128 characters)
+
+    let bytes_result = __host_crypto_sha512(data);
+    return bytes_to_hex(bytes_result);
+}
+
+fn sha512_bytes(data) {
+    //  Compute SHA-512 hash, returning raw bytes
+    //  data: bytes - Input data to hash
+    //  Returns: bytes - Raw hash bytes (64 bytes)
+
+    return __host_crypto_sha512(data);
+}
+
+/*---------------------------------------------------------------------------
+
+SHA-512 Implementation:
+SHA-512 is a cryptographic hash function from the SHA-2 family, producing
+a 512-bit (64-byte) hash. It offers higher security margin than SHA-256.
+
+Differences from SHA-256:
+- Larger hash output (512 bits vs 256 bits)
+- Slower on 32-bit systems
+- Faster on 64-bit systems (due to 64-bit operations)
+- Higher collision resistance
+
+Use when:
+- Maximum security is required
+- Working with 64-bit architectures
+- Generating long-term keys or identifiers
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 3.0: BLAKE3 Hash Function
+//=====================================================
+
+fn blake3(data) {
+    //  Compute BLAKE3 hash of data
+    //  data: string - Input data to hash
+    //  Returns: string - Hex-encoded hash (64 characters, 256 bits)
+
+    let bytes_result = __host_crypto_blake3(data);
+    return bytes_to_hex(bytes_result);
+}
+
+fn blake3_bytes(data) {
+    //  Compute BLAKE3 hash, returning raw bytes
+    //  data: bytes - Input data to hash
+    //  Returns: bytes - Raw hash bytes (32 bytes)
+
+    return __host_crypto_blake3(data);
+}
+
+/*---------------------------------------------------------------------------
+
+BLAKE3 Implementation:
+BLAKE3 is a modern cryptographic hash function based on BLAKE2. It is
+significantly faster than SHA-256 while maintaining strong security.
+
+Key features:
+- Parallel hashing (uses SIMD and multi-threading)
+- Extremely fast (~3 GB/s on modern CPUs)
+- Cryptographically secure
+- Simple API
+
+Advantages over SHA-256:
+- 6-8x faster for large data
+- Simpler construction
+- Better parallelization
+
+Use for:
+- High-performance hashing
+- Large file integrity checks
+- Modern applications without legacy constraints
+
+Note: Not yet standardized by NIST, but widely reviewed and adopted.
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 4.0: HMAC (Hash-based Message Authentication)
+//=====================================================
+
+fn hmac_sha256(key, message) {
+    //  Compute HMAC-SHA256 for message authentication
+    //  key: string - Secret key
+    //  message: string - Message to authenticate
+    //  Returns: string - Hex-encoded MAC (64 characters)
+
+    let bytes_result = __host_crypto_hmac(key, message, "sha256");
+    return bytes_to_hex(bytes_result);
+}
+
+fn hmac_sha512(key, message) {
+    //  Compute HMAC-SHA512 for message authentication
+    //  key: string - Secret key
+    //  message: string - Message to authenticate
+    //  Returns: string - Hex-encoded MAC (128 characters)
+
+    let bytes_result = __host_crypto_hmac(key, message, "sha512");
+    return bytes_to_hex(bytes_result);
+}
+
+fn verify_hmac(expected, key, message, algo) {
+    //  Verify HMAC in constant-time (prevents timing attacks)
+    //  expected: string - Expected HMAC (hex-encoded)
+    //  key: string - Secret key
+    //  message: string - Message to verify
+    //  algo: string - Algorithm ("sha256" or "sha512")
+    //  Returns: bool - True if HMAC is valid
+
+    //  Compute HMAC for message
+    let computed = "";
+    if (algo == "sha256") {
+        computed = hmac_sha256(key, message);
+    } else if (algo == "sha512") {
+        computed = hmac_sha512(key, message);
+    } else {
+        error("Invalid HMAC algorithm: " + algo);
+    }
+
+    //  Constant-time comparison (prevents timing attacks)
+    return constant_time_compare(expected, computed);
+}
+
+/*---------------------------------------------------------------------------
+
+HMAC (Hash-based Message Authentication Code):
+HMAC provides message authentication using a secret key and a hash function.
+It ensures both integrity (message not tampered) and authenticity (from holder of key).
+
+Properties:
+- Requires secret key (both parties must know it)
+- Prevents message tampering
+- Prevents forgery (without key)
+- Deterministic (same message+key = same MAC)
+
+Use cases:
+- API request signing
+- JWT token signatures (HS256, HS512)
+- Cookie integrity protection
+- Message authentication in protocols
+
+Security notes:
+- Key must be kept secret
+- Key should be >= hash output size (32 bytes for SHA-256)
+- Always verify using constant-time comparison
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 5.0: Utility Functions
+//=====================================================
+
+fn bytes_to_hex(bytes) {
+    //  Convert bytes to hexadecimal string
+    //  bytes: bytes - Input bytes
+    //  Returns: string - Hex string (lowercase)
+
+    //  @TODO: Replace with builtin when available
+    //  For now, use mock implementation
+    return "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+}
+
+fn constant_time_compare(a, b) {
+    //  Compare two strings in constant time (prevents timing attacks)
+    //  a: string - First string
+    //  b: string - Second string
+    //  Returns: bool - True if strings are equal
+
+    if (len(a) != len(b)) {
+        return false;
+    }
+
+    let result = 0;
+    for (let i = 0; i < len(a); i = i + 1) {
+        //  XOR characters and accumulate differences
+        result = result | (char_at(a, i) ^ char_at(b, i));
+    }
+
+    return result == 0;
+}
+
+/*---------------------------------------------------------------------------
+
+Constant-Time Comparison:
+Standard string comparison (==) can leak timing information through
+branch prediction and cache effects. Attackers can use this to guess
+secret values byte-by-byte.
+
+Constant-time comparison:
+1. Always compares all bytes (no early exit)
+2. Accumulates differences without branching
+3. Returns single boolean at end
+
+This prevents timing attacks on HMAC verification, password checks, etc.
+
+Critical for:
+- HMAC verification
+- Password comparison
+- Token validation
+- Any secret comparison
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 6.0: Mock Host Bridge (Development Only)
+//=====================================================
+
+fn __host_crypto_sha256(data) {
+    //  MOCK IMPLEMENTATION - Replace with real host bridge
+    println("[MOCK] SHA-256 hash of: " + str(len(data)) + " bytes");
+    return "mock_sha256_bytes";
+}
+
+fn __host_crypto_sha512(data) {
+    //  MOCK IMPLEMENTATION - Replace with real host bridge
+    println("[MOCK] SHA-512 hash of: " + str(len(data)) + " bytes");
+    return "mock_sha512_bytes";
+}
+
+fn __host_crypto_blake3(data) {
+    //  MOCK IMPLEMENTATION - Replace with real host bridge
+    println("[MOCK] BLAKE3 hash of: " + str(len(data)) + " bytes");
+    return "mock_blake3_bytes";
+}
+
+fn __host_crypto_hmac(key, message, algo) {
+    //  MOCK IMPLEMENTATION - Replace with real host bridge
+    println("[MOCK] HMAC-" + algo + " of: " + str(len(message)) + " bytes");
+    return "mock_hmac_bytes";
+}
+
+/*---------------------------------------------------------------------------
+
+Development Mocks:
+The __host_crypto_* functions above are temporary mocks for development.
+When integrated with SolvraCore, these will be removed and replaced with
+actual host bridge calls.
+
+Real implementation will use:
+- sha2 crate for SHA-256/SHA-512 (with SHA-NI acceleration)
+- blake3 crate for BLAKE3 (with SIMD acceleration)
+- hmac crate for HMAC construction
+
+All implementations will:
+1. Use constant-time operations where applicable
+2. Leverage hardware acceleration (AES-NI, SHA-NI, AVX2)
+3. Follow NIST specifications exactly
+4. Include comprehensive test vectors
+
+*/---------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------
+//  End of hash.svs
+//  This module provides cryptographic hashing for SolvraScript security operations.
+//
+//  @TODO Phase 1:
+//  - Implement bytes_to_hex properly
+//  - Add hex_to_bytes for reverse conversion
+//  - Integrate with SolvraCore host bridge
+//  - Add streaming hash support for large files
+//  - Add SHAKE256 (extendable-output function)
+//
+//  @ZNOTES:
+//  - All hash functions are deterministic
+//  - SHA-256/512 are NIST-standardized (FIPS 180-4)
+//  - BLAKE3 is modern but not yet NIST-standardized
+//  - HMAC verification uses constant-time comparison
+//  - No special sandbox permissions required (pure computation)
+//  - For password hashing, use <sec/kdf> (Argon2 or scrypt)
+//---------------------------------------------------------------------------
+
+//=====================================================
+// End of file
+//=====================================================

@@ -1,6 +1,7 @@
 mod async_control;
 mod builtins;
 pub mod compiler;
+mod legacy_builtins;
 mod metrics;
 pub mod runtime;
 
