@@ -220,6 +220,10 @@ fn estimate_value_size(value: &CoreValue) -> usize {
         CoreValue::Null | CoreValue::Boolean(_) => std::mem::size_of::<CoreValue>(),
         CoreValue::Integer(_) | CoreValue::Float(_) => std::mem::size_of::<CoreValue>(),
         CoreValue::String(s) => std::mem::size_of::<CoreValue>() + s.len(),
+        CoreValue::Array(items) => {
+            let element_bytes = items.len() * std::mem::size_of::<CoreValue>();
+            std::mem::size_of::<CoreValue>() + element_bytes
+        }
         CoreValue::Object(_) => std::mem::size_of::<CoreValue>() * 2,
     }
 }

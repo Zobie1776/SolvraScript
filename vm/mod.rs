@@ -1,8 +1,10 @@
 mod async_control;
 mod builtins;
 pub mod compiler;
+mod core_builtins;
 mod legacy_builtins;
 mod metrics;
+pub mod profiling;
 pub mod runtime;
 
 #[allow(unused_imports)]

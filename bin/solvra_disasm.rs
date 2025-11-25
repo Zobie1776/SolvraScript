@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use solvrascript::vm::{
     bytecode::{VmBytecode, VmConstant},
-    instruction::Opcode,
+    instruction::{Instruction, Opcode},
 };
 use std::{env, fs};
 
@@ -39,22 +39,12 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn operand_count(instruction: &solvrascript::vm::instruction::Instruction) -> usize {
-    match instruction.opcode {
-        Opcode::Call | Opcode::CallBuiltin | Opcode::CallAsync => 2,
-        Opcode::LoadConst
-        | Opcode::LoadVar
-        | Opcode::StoreVar
-        | Opcode::Jump
-        | Opcode::JumpIfFalse
-        | Opcode::MakeList
-        | Opcode::LoadLambda => 1,
-        _ => 0,
-    }
+fn operand_count(instruction: &Instruction) -> usize {
+    instruction.opcode.operand_count()
 }
 
 fn format_instruction(
-    instruction: &solvrascript::vm::instruction::Instruction,
+    instruction: &Instruction,
     constants: &[VmConstant],
     function_names: &[String],
 ) -> String {
@@ -80,6 +70,20 @@ fn format_instruction(
         Opcode::Jump => format!("Jump {}", instruction.operand_a),
         Opcode::JumpIfFalse => format!("JumpIfFalse {}", instruction.operand_a),
         Opcode::MakeList => format!("MakeList {}", instruction.operand_a),
+        Opcode::MakeArray => format!("MakeArray {}", instruction.operand_a),
+        Opcode::MakeObject => format!("MakeObject {}", instruction.operand_a),
+        Opcode::LoadMember => {
+            let name = constants
+                .get(instruction.operand_a as usize)
+                .and_then(|constant| match constant {
+                    VmConstant::String(value) => Some(value.as_str()),
+                    _ => None,
+                })
+                .unwrap_or("<member>");
+            format!("LoadMember {} ({name})", instruction.operand_a)
+        }
+        Opcode::Index => "Index".to_string(),
+        Opcode::SetIndex => "SetIndex".to_string(),
         Opcode::LoadLambda => format!("LoadLambda {}", instruction.operand_a),
         Opcode::Equal => "Equal".to_string(),
         Opcode::NotEqual => "NotEqual".to_string(),
@@ -116,8 +120,18 @@ fn format_instruction(
                 .unwrap_or("<unknown>");
             format!("CallAsync {} ({} args)", name, instruction.operand_b)
         }
+        Opcode::CoreCall => format!(
+            "CoreCall {} ({} args)",
+            instruction.operand_a, instruction.operand_b
+        ),
         Opcode::Await => "Await".to_string(),
         Opcode::Return => "Return".to_string(),
+        Opcode::CoreReturn => "CoreReturn".to_string(),
+        Opcode::CoreYield => "CoreYield".to_string(),
+        Opcode::Push => "Push".to_string(),
+        Opcode::Print => "Print".to_string(),
+        Opcode::SetMember => "SetMember".to_string(),
+        Opcode::Halt => "Halt".to_string(),
         Opcode::Nop => "Nop".to_string(),
     }
 }

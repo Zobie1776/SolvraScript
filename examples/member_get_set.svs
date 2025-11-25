@@ -1,0 +1,15 @@
+//==============================================
+// File: member_get_set.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Validate member reads and writes
+// Objective: Ensure LoadMember/SetMember opcodes behave deterministically
+//==============================================
+
+let counter = { value: 1 };
+counter.value = counter.value + 41;
+println(counter.value);
+
+//==============================================
+// End of file
+//==============================================

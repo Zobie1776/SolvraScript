@@ -1,0 +1,14 @@
+fn bump(x) {
+    return x + 1;
+}
+
+fn main() {
+    let acc = 0;
+    let i = 0;
+    while (i < 200) {
+        acc = bump(acc);
+        i = i + 1;
+    }
+    acc = bump("oops");
+    prt(acc);
+}

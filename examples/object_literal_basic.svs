@@ -1,0 +1,15 @@
+//==============================================
+// File: object_literal_basic.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Demonstrate dynamic object literal creation
+// Objective: Verify MakeObject opcode lowers literal maps correctly
+//==============================================
+
+let point = { x: 10, y: 20 };
+println(point.x);
+println(point.y);
+
+//==============================================
+// End of file
+//==============================================

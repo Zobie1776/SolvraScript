@@ -1,0 +1,16 @@
+//==============================================
+// File: time_smoke_test.svs
+// Author: Codex Agent
+// License: Duality Public License (DPL v1.0)
+// Goal: Exercise now_ms() timing builtin
+// Objective: Capture elapsed ms delta between sequential invocations
+//==============================================
+
+let t1 = now_ms();
+let t2 = now_ms();
+let delta = t2 - t1;
+println("time_smoke delta_ms=" + to_string(delta));
+
+//==============================================
+// End of file
+//==============================================

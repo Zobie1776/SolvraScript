@@ -1,0 +1,29 @@
+//==============================================
+// File: bench_array_sum.svs
+// Author: Codex Agent
+// License: Duality Public License (DPL v1.0)
+// Goal: Benchmark array creation plus indexed summation
+// Objective: Measure array throughput with now_ms()
+//==============================================
+let count = 10000;
+let nums = [];
+let i = 1;
+let t_start = now_ms();
+while (i <= count) {
+    nums = push(nums, i);
+    i = i + 1;
+}
+let sum = 0;
+let index = 0;
+while (index < len(nums)) {
+    sum = sum + nums[index];
+    index = index + 1;
+}
+let t_end = now_ms();
+let total = len(nums);
+let array_delta = t_end - t_start;
+let array_summary = "bench_array_sum len=" + to_string(total) + " sum=" + to_string(sum) + " time_ms=" + to_string(array_delta);
+println(array_summary);
+//==============================================
+// End of file
+//==============================================

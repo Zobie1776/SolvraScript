@@ -12,113 +12,160 @@
 mod ast;
 mod core_bridge;
 mod interpreter;
+mod ir;
 mod modules;
 mod parser;
 mod platform;
 mod stdlib_registry;
+mod symbol;
+mod tier1;
+mod tier2;
 mod tokenizer;
 mod vm;
 
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
-use clap::Parser as ClapParser;
-use parser::{ParseError, Parser};
+use clap::Parser;
+use ir::interpreter::{IrInterpreter, RuntimeValue};
+use ir::lowering::lower_program;
+use ir::verify::verify_function;
+use parser::{ParseError, Parser as AstParser};
 use serde_json::json;
+use solvra_core::jit::tier0_codegen::Tier0Compiler;
 use solvra_core::vm::bytecode::VmBytecode;
 use solvra_core::{SolvraError, StackFrame, Value};
 use tokenizer::Tokenizer;
 use vm::TelemetryCollector;
+use tier2::Tier2Options;
 use vm::compiler;
 use vm::runtime::{MemoryTracker, RuntimeOptions, SolvraProgram, run_bytecode};
 
-#[derive(Debug, ClapParser)]
-#[command(
-    name = "solvrascript",
-    about = "Executes SolvraScript source (.svs) or bytecode (.svc) files.",
-    version
-)]
-struct Args {
-    /// Path to a SolvraScript source (.svs) or bytecode (.svc) file.
-    script: PathBuf,
+#[derive(Parser, Debug)]
+#[command(name = "solvrascript", about = "SolvraScript CLI")]
+pub struct Args {
+    /// Path to the script to execute.
+    pub script: PathBuf,
 
-    /// Enable opcode-level tracing (equivalent to setting SOLVRA_TRACE=1).
-    #[arg(long)]
-    trace: bool,
+    /// Print parsed AST before execution.
+    #[arg(long = "print-ast")]
+    pub print_ast: bool,
 
-    /// Async timeout in milliseconds (equivalent to SOLVRA_ASYNC_TIMEOUT_MS).
-    #[arg(long, value_name = "MS")]
-    async_timeout_ms: Option<u64>,
+    /// Execute using the IR interpreter instead of the VM.
+    #[arg(long = "enable-ir")]
+    pub enable_ir: bool,
 
-    /// Pretty-print the parsed AST before execution (source files only).
-    #[arg(long)]
-    print_ast: bool,
+    /// Emit Tier-0 IR listing and exit.
+    #[arg(long = "emit-tier0")]
+    pub emit_tier0: bool,
 
-    /// Emit runtime telemetry as JSON to stdout after execution completes.
-    #[arg(long)]
-    telemetry: bool,
+    /// Emit Tier-1 MIR listing and exit.
+    #[arg(long = "emit-mir")]
+    pub emit_mir: bool,
 
-    /// Emit memory statistics JSON after execution completes.
-    #[arg(long = "memory-stats")]
-    memory_stats: bool,
+    /// Emit Tier-1 MIR listing only if verification succeeds.
+    #[arg(long = "emit-mir-verified")]
+    pub emit_mir_verified: bool,
 
-    /// Enable module hot reload semantics for imports.
-    #[arg(long)]
-    hot_reload: bool,
+    /// Run Tier-1 register allocation and dump the assignments.
+    #[arg(long = "emit-regalloc")]
+    pub emit_regalloc: bool,
+
+    /// Enable Tier-0 JIT dispatch.
+    #[arg(long = "jit-tier0")]
+    pub jit_tier0: bool,
+
+    /// Enable Tier-1 JIT dispatch.
+    #[arg(long = "jit-tier1")]
+    pub jit_tier1: bool,
+
+    /// Print JIT statistics after execution.
+    #[arg(long = "jit-stats")]
+    pub jit_stats: bool,
+
+    /// Print Tier-1 deopt debug information.
+    #[arg(long = "jit-deopt-debug")]
+    pub jit_deopt_debug: bool,
+
+    /// Print fused Tier-1 IC debug information after execution.
+    #[arg(long = "jit-tier1-fused-debug")]
+    pub jit_tier1_fused_debug: bool,
+
+    /// Print Tier-1 OSR landing pad metadata after execution.
+    #[arg(long = "jit-osr-debug")]
+    pub jit_osr_debug: bool,
+
+    /// Print transfer-plan reconstruction debug information.
+    #[arg(long = "jit-transfer-debug")]
+    pub jit_transfer_debug: bool,
+
+    /// Validate OSR landing pads before use and report results.
+    #[arg(long = "jit-osr-validate")]
+    pub jit_osr_validate: bool,
+
+    /// Enable Tier-2 optimizing JIT.
+    #[arg(long = "jit-tier2")]
+    pub jit_tier2: bool,
+
+    /// Print Tier-2 OSR/metadata debug information.
+    #[arg(long = "jit-osr-tier2-debug")]
+    pub jit_osr_tier2_debug: bool,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    modules::set_global_hot_reload(args.hot_reload);
-    let trace_enabled = args.trace || trace_from_env();
-    let mut options = RuntimeOptions::with_trace(trace_enabled);
-    if let Some(timeout_ms) = args.async_timeout_ms.or_else(async_timeout_from_env) {
-        options = options.with_async_timeout(timeout_ms);
-    }
 
-    let telemetry_collector = if args.telemetry {
-        Some(TelemetryCollector::new())
-    } else {
-        None
+    let options = RuntimeOptions {
+        jit_tier0: args.jit_tier0,
+        jit_tier1: args.jit_tier1,
+        jit_deopt_debug: args.jit_deopt_debug,
+        jit_transfer_debug: args.jit_transfer_debug,
+        jit_tier2: args.jit_tier2,
+        jit_osr_tier2_debug: args.jit_osr_tier2_debug,
+        ..Default::default()
     };
-    if let Some(collector) = &telemetry_collector {
-        options = options.with_telemetry_collector(collector.clone());
-    }
 
-    let memory_tracker = if args.memory_stats {
-        Some(MemoryTracker::new())
-    } else {
-        None
-    };
-    if let Some(tracker) = &memory_tracker {
-        options = options.with_memory_tracker(tracker.clone());
-    }
-
-    match file_kind(&args.script) {
-        Some(FileKind::Source) => run_source_file(
-            &args.script,
-            options.clone(),
-            args.print_ast,
-            telemetry_collector.clone(),
-            memory_tracker.clone(),
-        ),
-        Some(FileKind::Bytecode) => {
-            run_bytecode_file(&args.script, options, telemetry_collector, memory_tracker)
-        }
-        None => Err(anyhow!(
-            "unsupported input extension for {}",
-            args.script.display()
-        )),
-    }
+    run_source_file(
+        &args.script,
+        options,
+        args.print_ast,
+        args.enable_ir,
+        args.emit_tier0,
+        args.emit_mir,
+        args.emit_mir_verified,
+        args.emit_regalloc,
+        args.jit_tier0,
+        args.jit_tier1,
+        args.jit_stats,
+        args.jit_deopt_debug,
+        args.jit_tier1_fused_debug,
+        args.jit_osr_debug,
+        args.jit_transfer_debug,
+        args.jit_osr_validate,
+        None,
+        None,
+    )
 }
 
 fn run_source_file(
     path: &Path,
     options: RuntimeOptions,
     print_ast: bool,
+    enable_ir: bool,
+    emit_tier0: bool,
+    emit_mir: bool,
+    emit_mir_verified: bool,
+    emit_regalloc: bool,
+    jit_tier0: bool,
+    jit_tier1: bool,
+    jit_stats: bool,
+    jit_deopt_debug: bool,
+    jit_tier1_fused_debug: bool,
+    jit_osr_debug: bool,
+    jit_transfer_debug: bool,
+    jit_osr_validate: bool,
     telemetry: Option<TelemetryCollector>,
     memory_tracker: Option<MemoryTracker>,
 ) -> Result<()> {
@@ -130,7 +177,7 @@ fn run_source_file(
         .tokenize()
         .map_err(|err| anyhow!("Tokenizer error: {err}"))?;
 
-    let mut parser = Parser::new(tokens);
+    let mut parser = AstParser::new(tokens);
     let program = parser
         .parse()
         .map_err(|error| map_parse_error(path, error))?;
@@ -139,8 +186,83 @@ fn run_source_file(
         println!("{:#?}", program);
     }
 
+    if emit_tier0 {
+        return run_tier0_pipeline(&program);
+    }
+
+    if emit_mir || emit_mir_verified || emit_regalloc {
+        return run_tier1_debug_pipeline(&program, emit_mir, emit_mir_verified, emit_regalloc);
+    }
+
+    if enable_ir {
+        return run_ir_pipeline(&program);
+    }
+
+    run_vm_pipeline(
+        &program,
+        options,
+        jit_tier0,
+        jit_tier1,
+        jit_stats,
+        jit_deopt_debug,
+        jit_tier1_fused_debug,
+        jit_osr_debug,
+        jit_transfer_debug,
+        jit_osr_validate,
+        telemetry,
+        memory_tracker,
+    )
+}
+
+fn run_vm_pipeline(
+    program: &ast::Program,
+    mut options: RuntimeOptions,
+    jit_tier0: bool,
+    jit_tier1: bool,
+    jit_stats: bool,
+    jit_deopt_debug: bool,
+    jit_tier1_fused_debug: bool,
+    jit_osr_debug: bool,
+    jit_transfer_debug: bool,
+    jit_osr_validate: bool,
+    telemetry: Option<TelemetryCollector>,
+    memory_tracker: Option<MemoryTracker>,
+) -> Result<()> {
+    options.jit_tier0 = jit_tier0;
+    options.jit_tier1 = jit_tier1;
+    options.jit_stats = jit_stats;
+    options.jit_deopt_debug = jit_deopt_debug;
+    options.jit_tier1_fused_debug = jit_tier1_fused_debug;
+    options.jit_osr_debug = jit_osr_debug;
+    options.jit_transfer_debug = jit_transfer_debug;
+    options.jit_osr_validate = jit_osr_validate;
+
+    if jit_tier0 || jit_stats || jit_tier1 {
+        let module = lower_program(program).map_err(|err| anyhow!("IR lowering failed: {err}"))?;
+        let module_arc = Arc::new(module);
+        if jit_tier0 || jit_stats {
+            options.jit_ir_module = Some(Arc::clone(&module_arc));
+        }
+        if jit_tier1 {
+            let lowered = tier1::lower_ir_to_mir(module_arc.as_ref());
+            let mir_arc = Arc::new(lowered.module);
+            let osr_arc = Arc::new(lowered.osr_registry);
+            options.tier1_mir_module = Some(Arc::clone(&mir_arc));
+            options.tier1_osr_registry = Some(osr_arc);
+            if options.jit_ir_module.is_none() {
+                options.jit_ir_module = Some(Arc::clone(&module_arc));
+            }
+            if options.tier1_mir_module.is_none() {
+                options.tier1_mir_module = Some(mir_arc);
+            }
+        }
+        if options.jit_ir_module.is_none() {
+            options.jit_ir_module = Some(module_arc);
+        }
+    }
+
     let bytecode =
-        compiler::compile_program(&program).map_err(|err| anyhow!("compiler error: {err}"))?;
+        compiler::compile_program(program).map_err(|err| anyhow!("compiler error: {err}"))?;
     let vm_program =
         VmBytecode::decode(&bytecode[..]).map_err(|err| anyhow!("bytecode decode error: {err}"))?;
     let value = execute_vm(Arc::new(vm_program), options)?;
@@ -149,18 +271,55 @@ fn run_source_file(
     Ok(())
 }
 
-fn run_bytecode_file(
-    path: &Path,
-    options: RuntimeOptions,
-    telemetry: Option<TelemetryCollector>,
-    memory_tracker: Option<MemoryTracker>,
+fn run_ir_pipeline(program: &ast::Program) -> Result<()> {
+    let module = lower_program(program).map_err(|err| anyhow!("IR lowering failed: {err}"))?;
+    for function in module.functions() {
+        verify_function(function)
+            .map_err(|err| anyhow!("IR verification failed for {}: {err}", function.name))?;
+    }
+    let interpreter = IrInterpreter::new(&module);
+    let value = interpreter
+        .run_entry("main", &[])
+        .map_err(|err| anyhow!("IR interpreter error: {err}"))?;
+    if !matches!(value, RuntimeValue::Null) {
+        println!("{value}");
+    }
+    Ok(())
+}
+
+fn run_tier0_pipeline(program: &ast::Program) -> Result<()> {
+    let module = lower_program(program).map_err(|err| anyhow!("IR lowering failed: {err}"))?;
+    let compiler = Tier0Compiler::new();
+    for function in module.functions() {
+        verify_function(function)
+            .map_err(|err| anyhow!("IR verification failed for {}: {err}", function.name))?;
+        let artifact = compiler.compile(function);
+        println!("// Tier-0 IR: {}", function.name);
+        println!("{}", artifact.listing.trim_end());
+        println!();
+    }
+    Ok(())
+}
+
+fn run_tier1_debug_pipeline(
+    program: &ast::Program,
+    emit_mir: bool,
+    emit_verified: bool,
+    emit_regalloc: bool,
 ) -> Result<()> {
-    let data = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let vm_program =
-        VmBytecode::decode(&data[..]).map_err(|err| anyhow!("failed to decode bytecode: {err}"))?;
-    let value = execute_vm(Arc::new(vm_program), options)?;
-    emit_runtime_value(&value);
-    emit_runtime_metrics(telemetry, memory_tracker)?;
+    let module = lower_program(program).map_err(|err| anyhow!("IR lowering failed: {err}"))?;
+    let lowered = tier1::lower_ir_to_mir(&module);
+    let mir_module = lowered.module;
+    if emit_verified {
+        tier1::verify_lowered_module(&mir_module)
+            .map_err(|err| anyhow!("MIR verification failed: {err}"))?;
+        tier1::dump_mir(&mir_module);
+    } else if emit_mir {
+        tier1::dump_mir(&mir_module);
+    }
+    if emit_regalloc {
+        let _ = tier1::dump_regalloc(&mir_module);
+    }
     Ok(())
 }
 
@@ -205,36 +364,6 @@ fn emit_runtime_metrics(
     Ok(())
 }
 
-fn trace_from_env() -> bool {
-    env::var("SOLVRA_TRACE")
-        .ok()
-        .map(|value| {
-            let lower = value.to_ascii_lowercase();
-            !(lower.is_empty() || lower == "0" || lower == "false" || lower == "off")
-        })
-        .unwrap_or(false)
-}
-
-fn async_timeout_from_env() -> Option<u64> {
-    env::var("SOLVRA_ASYNC_TIMEOUT_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|timeout| *timeout > 0)
-}
-
-enum FileKind {
-    Source,
-    Bytecode,
-}
-
-fn file_kind(path: &Path) -> Option<FileKind> {
-    match path.extension().and_then(|ext| ext.to_str()) {
-        Some("svs") => Some(FileKind::Source),
-        Some("svc") => Some(FileKind::Bytecode),
-        _ => None,
-    }
-}
-
 fn map_parse_error(path: &Path, error: ParseError) -> anyhow::Error {
     match error {
         ParseError::UnexpectedToken {
@@ -267,6 +396,7 @@ fn value_to_string(value: &Value) -> String {
         Value::Integer(int) => int.to_string(),
         Value::Float(float) => float.to_string(),
         Value::String(text) => text.clone(),
+        Value::Array(elements) => format!("[array:{}]", elements.len()),
         Value::Object(_) => "<object>".into(),
     }
 }

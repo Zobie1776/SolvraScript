@@ -1,13 +1,18 @@
 use std::collections::HashMap;
 
+use super::core_builtins::is_core_builtin_name;
 use crate::ast::{
-    BinaryOp, Expr, FunctionDecl, Literal, Parameter, Program, Stmt, StringPart, Type, UnaryOp,
-    VariableDecl, Visibility,
+    AssignTarget, BinaryOp, Expr, FunctionDecl, Literal, MemberKind, Parameter, Program, Stmt,
+    StringPart, Type, UnaryOp, VariableDecl, Visibility,
 };
+use crate::symbol::Symbol;
 use crate::tokenizer::Position;
 use anyhow::{Result, anyhow, bail};
-use solvra_core::solvrac::{self, Constant, Function, Instruction, Opcode};
+use solvra_core::solvrac::{self, Constant, Function};
 use solvra_core::vm::compiler as vm_compiler;
+use solvra_core::vm::instruction::{Instruction, Opcode};
+
+const DYNAMIC_CALL_TARGET: u32 = u32::MAX;
 
 pub fn compile_program(program: &Program) -> Result<Vec<u8>> {
     let mut compiler = Compiler::default();
@@ -41,7 +46,7 @@ pub fn compile_function_from_parts(
     let parameters: Vec<Parameter> = params
         .iter()
         .map(|param| Parameter {
-            name: param.clone(),
+            name: Symbol::from(param.as_str()),
             param_type: Type::Inferred,
             default_value: None,
             position: Position::new(0, 0, 0),
@@ -49,7 +54,7 @@ pub fn compile_function_from_parts(
         .collect();
 
     let decl = FunctionDecl {
-        name: name.to_string(),
+        name: Symbol::from(name),
         params: parameters,
         return_type: Type::Inferred,
         body: body.to_vec(),
@@ -61,12 +66,24 @@ pub fn compile_function_from_parts(
     compile_function_decl(&decl)
 }
 
-#[derive(Default)]
 struct Compiler {
     constants: Vec<Constant>,
     functions: Vec<Option<Function>>,
     function_indices: HashMap<String, usize>,
     lambda_counter: usize,
+    constant_cache: HashMap<ConstantKey, u32>,
+}
+
+impl Default for Compiler {
+    fn default() -> Self {
+        Self {
+            constants: Vec::new(),
+            functions: Vec::new(),
+            function_indices: HashMap::new(),
+            lambda_counter: 0,
+            constant_cache: HashMap::new(),
+        }
+    }
 }
 
 impl Compiler {
@@ -138,7 +155,7 @@ impl Compiler {
         let constant = match literal {
             Literal::Integer(value) => Constant::Integer(*value),
             Literal::Float(value) => Constant::Float(*value),
-            Literal::String(value) => Constant::String(value.clone()),
+            Literal::String(value) => Constant::String(value.to_string()),
             Literal::Boolean(value) => Constant::Boolean(*value),
             Literal::Null => Constant::Null,
             other => bail!("literal type not supported in VM compiler: {other:?}"),
@@ -152,18 +169,19 @@ impl Compiler {
     }
 
     fn constant_index(&mut self, constant: Constant) -> u32 {
-        if let Some(index) = self.constants.iter().position(|c| c == &constant) {
-            index as u32
-        } else {
-            let index = self.constants.len();
-            self.constants.push(constant);
-            index as u32
+        let key = ConstantKey::from(&constant);
+        if let Some(index) = self.constant_cache.get(&key) {
+            return *index;
         }
+        let index = self.constants.len() as u32;
+        self.constants.push(constant);
+        self.constant_cache.insert(key, index);
+        index
     }
 
     fn compile_lambda(
         &mut self,
-        params: &[String],
+        params: &[Symbol],
         body: &Expr,
         position: &Position,
     ) -> Result<u32> {
@@ -184,7 +202,7 @@ impl Compiler {
             position: position.clone(),
         }];
         let decl = FunctionDecl {
-            name,
+            name: Symbol::from(name),
             params: parameters,
             return_type: Type::Inferred,
             body: lambda_body,
@@ -202,6 +220,27 @@ impl Compiler {
 
     fn resolve_function(&self, name: &str) -> Option<usize> {
         self.function_indices.get(name).copied()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum ConstantKey {
+    String(String),
+    Integer(i64),
+    Float(u64),
+    Boolean(bool),
+    Null,
+}
+
+impl From<&Constant> for ConstantKey {
+    fn from(value: &Constant) -> Self {
+        match value {
+            Constant::String(text) => ConstantKey::String(text.clone()),
+            Constant::Integer(int) => ConstantKey::Integer(*int),
+            Constant::Float(float) => ConstantKey::Float(float.to_bits()),
+            Constant::Boolean(flag) => ConstantKey::Boolean(*flag),
+            Constant::Null => ConstantKey::Null,
+        }
     }
 }
 
@@ -241,6 +280,15 @@ impl<'a> FunctionCompiler<'a> {
         Ok(compiler)
     }
 
+    fn emit_instruction(&mut self, opcode: Opcode, operands: &[u32]) {
+        self.instructions
+            .push(Instruction::with_operands(opcode, operands));
+    }
+
+    fn emit_op(&mut self, opcode: Opcode) {
+        self.emit_instruction(opcode, &[]);
+    }
+
     fn compile_statements(&mut self, statements: &[Stmt]) -> Result<()> {
         for stmt in statements {
             self.compile_stmt(stmt)?;
@@ -251,10 +299,8 @@ impl<'a> FunctionCompiler<'a> {
     fn finish(mut self, name: &str) -> Result<Function> {
         if !matches!(self.instructions.last(), Some(inst) if inst.opcode == Opcode::Return) {
             let null_index = self.program.constant_index(Constant::Null);
-            self.instructions
-                .push(Instruction::new(Opcode::LoadConst, vec![null_index]));
-            self.instructions
-                .push(Instruction::new(Opcode::Return, Vec::new()));
+            self.emit_instruction(Opcode::LoadConst, &[null_index]);
+            self.emit_op(Opcode::Return);
         }
         self.end_scope();
         Ok(Function::new(
@@ -268,8 +314,7 @@ impl<'a> FunctionCompiler<'a> {
         match stmt {
             Stmt::Expression { expr, .. } => {
                 self.compile_expr(expr)?;
-                self.instructions
-                    .push(Instruction::new(Opcode::Pop, Vec::new()));
+                self.emit_op(Opcode::Pop);
                 Ok(())
             }
             Stmt::VariableDecl { decl } => self.compile_variable_decl(decl),
@@ -299,11 +344,9 @@ impl<'a> FunctionCompiler<'a> {
                     self.compile_expr(expr)?;
                 } else {
                     let null_index = self.program.constant_index(Constant::Null);
-                    self.instructions
-                        .push(Instruction::new(Opcode::LoadConst, vec![null_index]));
+                    self.emit_instruction(Opcode::LoadConst, &[null_index]);
                 }
-                self.instructions
-                    .push(Instruction::new(Opcode::Return, Vec::new()));
+                self.emit_op(Opcode::Return);
                 Ok(())
             }
             Stmt::Break { label, .. } => {
@@ -332,11 +375,9 @@ impl<'a> FunctionCompiler<'a> {
             self.compile_expr(initializer)?;
         } else {
             let null_index = self.program.constant_index(Constant::Null);
-            self.instructions
-                .push(Instruction::new(Opcode::LoadConst, vec![null_index]));
+            self.emit_instruction(Opcode::LoadConst, &[null_index]);
         }
-        self.instructions
-            .push(Instruction::new(Opcode::StoreVar, vec![slot]));
+        self.emit_instruction(Opcode::StoreVar, &[slot]);
         Ok(())
     }
 
@@ -370,8 +411,7 @@ impl<'a> FunctionCompiler<'a> {
         self.begin_scope();
         self.compile_stmt(body)?;
         self.end_scope();
-        self.instructions
-            .push(Instruction::new(Opcode::Jump, vec![loop_start as u32]));
+        self.emit_instruction(Opcode::Jump, &[loop_start as u32]);
         self.patch_jump(exit_jump);
         let break_target = self.instructions.len();
         self.end_loop(break_target);
@@ -392,8 +432,7 @@ impl<'a> FunctionCompiler<'a> {
         let slot = self.declare_local(variable)?;
         for element in elements {
             self.compile_expr(element)?;
-            self.instructions
-                .push(Instruction::new(Opcode::StoreVar, vec![slot]));
+            self.emit_instruction(Opcode::StoreVar, &[slot]);
             self.compile_stmt(body)?;
         }
         self.end_scope();
@@ -404,26 +443,31 @@ impl<'a> FunctionCompiler<'a> {
         match expr {
             Expr::Literal { value, .. } => match value {
                 Literal::Array(elements) => {
+                    self.emit_instruction(Opcode::MakeArray, &[elements.len() as u32]);
                     for element in elements {
                         self.compile_expr(element)?;
+                        self.emit_op(Opcode::Push);
                     }
-                    self.instructions.push(Instruction::new(
-                        Opcode::MakeList,
-                        vec![elements.len() as u32],
-                    ));
+                    Ok(())
+                }
+                Literal::Object(fields) => {
+                    for (key, expr) in fields {
+                        let key_index = self.program.ensure_string_constant(key.as_str());
+                        self.emit_instruction(Opcode::LoadConst, &[key_index]);
+                        self.compile_expr(expr)?;
+                    }
+                    self.emit_instruction(Opcode::MakeObject, &[fields.len() as u32]);
                     Ok(())
                 }
                 _ => {
                     let index = self.program.literal_constant(value)?;
-                    self.instructions
-                        .push(Instruction::new(Opcode::LoadConst, vec![index]));
+                    self.emit_instruction(Opcode::LoadConst, &[index]);
                     Ok(())
                 }
             },
             Expr::Identifier { name, .. } => {
                 let slot = self.resolve_local(name)?;
-                self.instructions
-                    .push(Instruction::new(Opcode::LoadVar, vec![slot]));
+                self.emit_instruction(Opcode::LoadVar, &[slot]);
                 Ok(())
             }
             Expr::Binary {
@@ -435,48 +479,22 @@ impl<'a> FunctionCompiler<'a> {
                 self.compile_expr(left)?;
                 self.compile_expr(right)?;
                 match operator {
-                    BinaryOp::Add => self
-                        .instructions
-                        .push(Instruction::new(Opcode::Add, Vec::new())),
-                    BinaryOp::Subtract => self
-                        .instructions
-                        .push(Instruction::new(Opcode::Sub, Vec::new())),
-                    BinaryOp::Multiply => self
-                        .instructions
-                        .push(Instruction::new(Opcode::Mul, Vec::new())),
-                    BinaryOp::Divide => self
-                        .instructions
-                        .push(Instruction::new(Opcode::Div, Vec::new())),
-                    BinaryOp::Modulo => self
-                        .instructions
-                        .push(Instruction::new(Opcode::Mod, Vec::new())),
-                    BinaryOp::Equal => self
-                        .instructions
-                        .push(Instruction::new(Opcode::CmpEq, Vec::new())),
+                    BinaryOp::Add => self.emit_op(Opcode::Add),
+                    BinaryOp::Subtract => self.emit_op(Opcode::Sub),
+                    BinaryOp::Multiply => self.emit_op(Opcode::Mul),
+                    BinaryOp::Divide => self.emit_op(Opcode::Div),
+                    BinaryOp::Modulo => self.emit_op(Opcode::Mod),
+                    BinaryOp::Equal => self.emit_op(Opcode::Equal),
                     BinaryOp::NotEqual => {
-                        self.instructions
-                            .push(Instruction::new(Opcode::CmpEq, Vec::new()));
-                        self.instructions
-                            .push(Instruction::new(Opcode::Not, Vec::new()));
+                        self.emit_op(Opcode::Equal);
+                        self.emit_op(Opcode::Not);
                     }
-                    BinaryOp::Less => self
-                        .instructions
-                        .push(Instruction::new(Opcode::CmpLt, Vec::new())),
-                    BinaryOp::Greater => self
-                        .instructions
-                        .push(Instruction::new(Opcode::CmpGt, Vec::new())),
-                    BinaryOp::LessEqual => self
-                        .instructions
-                        .push(Instruction::new(Opcode::CmpLe, Vec::new())),
-                    BinaryOp::GreaterEqual => self
-                        .instructions
-                        .push(Instruction::new(Opcode::CmpGe, Vec::new())),
-                    BinaryOp::And => self
-                        .instructions
-                        .push(Instruction::new(Opcode::And, Vec::new())),
-                    BinaryOp::Or => self
-                        .instructions
-                        .push(Instruction::new(Opcode::Or, Vec::new())),
+                    BinaryOp::Less => self.emit_op(Opcode::Less),
+                    BinaryOp::Greater => self.emit_op(Opcode::Greater),
+                    BinaryOp::LessEqual => self.emit_op(Opcode::LessEqual),
+                    BinaryOp::GreaterEqual => self.emit_op(Opcode::GreaterEqual),
+                    BinaryOp::And => self.emit_op(Opcode::And),
+                    BinaryOp::Or => self.emit_op(Opcode::Or),
                     other => bail!("unsupported binary operator {other:?}"),
                 }
                 Ok(())
@@ -486,21 +504,21 @@ impl<'a> FunctionCompiler<'a> {
             } => {
                 self.compile_expr(operand)?;
                 match operator {
-                    UnaryOp::Minus => {
-                        self.instructions
-                            .push(Instruction::new(Opcode::Neg, Vec::new()));
-                    }
-                    UnaryOp::Not => {
-                        self.instructions
-                            .push(Instruction::new(Opcode::Not, Vec::new()));
-                    }
+                    UnaryOp::Minus => self.emit_op(Opcode::Neg),
+                    UnaryOp::Not => self.emit_op(Opcode::Not),
                     UnaryOp::Plus => { /* no-op */ }
                     other => bail!("unsupported unary operator {other:?}"),
                 }
                 Ok(())
             }
             Expr::Call { callee, args, .. } => self.compile_call(callee, args, CallMode::Normal),
-            Expr::Assignment { target, value, .. } => self.compile_assignment(target, value),
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => self.compile_method_call(receiver, method, args),
+            Expr::Assign { target, value, .. } => self.compile_assignment(target, value),
             Expr::If {
                 condition,
                 then_expr,
@@ -511,17 +529,13 @@ impl<'a> FunctionCompiler<'a> {
                 for element in elements {
                     self.compile_expr(element)?;
                 }
-                self.instructions.push(Instruction::new(
-                    Opcode::MakeList,
-                    vec![elements.len() as u32],
-                ));
+                self.emit_instruction(Opcode::MakeList, &[elements.len() as u32]);
                 Ok(())
             }
             Expr::StringTemplate { parts, .. } | Expr::StringInterpolation { parts, .. } => {
                 if let Some(value) = flatten_literal_template(parts) {
                     let index = self.program.constant_index(Constant::String(value));
-                    self.instructions
-                        .push(Instruction::new(Opcode::LoadConst, vec![index]));
+                    self.emit_instruction(Opcode::LoadConst, &[index]);
                     Ok(())
                 } else {
                     bail!("string templates with embedded expressions are not supported")
@@ -533,41 +547,64 @@ impl<'a> FunctionCompiler<'a> {
                 position,
             } => {
                 let function_index = self.program.compile_lambda(params, body, position)?;
-                self.instructions
-                    .push(Instruction::new(Opcode::LoadLambda, vec![function_index]));
+                self.emit_instruction(Opcode::LoadLambda, &[function_index]);
                 Ok(())
             }
             Expr::Async { expr, .. } => self.compile_async(expr),
             Expr::Await { expr, .. } => {
                 self.compile_expr(expr)?;
-                self.instructions
-                    .push(Instruction::new(Opcode::Await, Vec::new()));
+                self.emit_op(Opcode::Await);
                 Ok(())
             }
             Expr::Index { object, index, .. } => {
                 self.compile_expr(object)?;
                 self.compile_expr(index)?;
-                let name_index = self.program.ensure_string_constant("core_index");
-                self.instructions
-                    .push(Instruction::new(Opcode::CallBuiltin, vec![name_index, 2]));
+                self.emit_op(Opcode::Index);
+                Ok(())
+            }
+            Expr::Member {
+                object, property, ..
+            } => {
+                self.compile_expr(object)?;
+                let name_index = self.program.ensure_string_constant(property.as_str());
+                self.emit_instruction(Opcode::LoadMember, &[name_index]);
                 Ok(())
             }
             other => bail!("unsupported expression type: {other:?}"),
         }
     }
 
-    fn compile_assignment(&mut self, target: &Expr, value: &Expr) -> Result<()> {
+    fn compile_assignment(&mut self, target: &AssignTarget, value: &Expr) -> Result<()> {
         match target {
-            Expr::Identifier { name, .. } => {
-                let slot = self.resolve_local(name)?;
+            AssignTarget::Variable(name) => {
+                let slot = self.resolve_local(name.as_str())?;
                 self.compile_expr(value)?;
-                self.instructions
-                    .push(Instruction::new(Opcode::StoreVar, vec![slot]));
-                self.instructions
-                    .push(Instruction::new(Opcode::LoadVar, vec![slot]));
+                self.emit_instruction(Opcode::StoreVar, &[slot]);
+                self.emit_instruction(Opcode::LoadVar, &[slot]);
                 Ok(())
             }
-            _ => bail!("unsupported assignment target"),
+            AssignTarget::Index { array, index } => {
+                let array_name = match array.as_ref() {
+                    Expr::Identifier { name, .. } => name,
+                    _ => bail!("unsupported assignment target"),
+                };
+                let slot = self.resolve_local(array_name.as_str())?;
+                self.emit_instruction(Opcode::LoadVar, &[slot]);
+                self.compile_expr(index)?;
+                self.compile_expr(value)?;
+                self.emit_op(Opcode::SetIndex);
+                self.emit_instruction(Opcode::StoreVar, &[slot]);
+                self.emit_instruction(Opcode::LoadVar, &[slot]);
+                Ok(())
+            }
+            AssignTarget::Member { object, property } => {
+                self.compile_expr(object)?;
+                let key_index = self.program.ensure_string_constant(property.as_str());
+                self.emit_instruction(Opcode::LoadConst, &[key_index]);
+                self.compile_expr(value)?;
+                self.emit_op(Opcode::SetMember);
+                Ok(())
+            }
         }
     }
 
@@ -606,35 +643,66 @@ impl<'a> FunctionCompiler<'a> {
                     CallMode::Normal => Opcode::Call,
                     CallMode::Async => Opcode::CallAsync,
                 };
-                self.instructions.push(Instruction::new(
-                    opcode,
-                    vec![index as u32, args.len() as u32],
-                ));
+                self.emit_instruction(opcode, &[index as u32, args.len() as u32]);
                 Ok(())
             }
             ResolvedCallTarget::Builtin(name) => {
                 let name_index = self.program.ensure_string_constant(&name);
-                self.instructions.push(Instruction::new(
-                    Opcode::CallBuiltin,
-                    vec![name_index, args.len() as u32],
-                ));
+                self.emit_instruction(Opcode::CallBuiltin, &[name_index, args.len() as u32]);
+                Ok(())
+            }
+            ResolvedCallTarget::CoreBuiltin(name) => {
+                let name_index = self.program.ensure_string_constant(&name);
+                self.emit_instruction(Opcode::CoreCall, &[name_index, args.len() as u32]);
                 Ok(())
             }
         }
     }
 
+    fn compile_method_call(
+        &mut self,
+        receiver: &Expr,
+        method: &Symbol,
+        args: &[Expr],
+    ) -> Result<()> {
+        let (temp_slot, prev_next) = self.acquire_temp_slot();
+        self.compile_expr(receiver)?;
+        self.emit_instruction(Opcode::StoreVar, &[temp_slot]);
+        self.emit_instruction(Opcode::LoadVar, &[temp_slot]);
+        let name_index = self.program.ensure_string_constant(method.as_str());
+        self.emit_instruction(Opcode::LoadMember, &[name_index]);
+        self.emit_instruction(Opcode::LoadVar, &[temp_slot]);
+        for arg in args {
+            self.compile_expr(arg)?;
+        }
+        self.release_temp_slot(prev_next);
+        let total_args = args.len() + 1;
+        self.emit_instruction(
+            Opcode::Call,
+            &[DYNAMIC_CALL_TARGET, total_args as u32, name_index],
+        );
+        Ok(())
+    }
+
     fn resolve_call_target(&mut self, callee: &Expr) -> Result<ResolvedCallTarget> {
         match callee {
             Expr::Identifier { name, .. } => {
-                if let Some(index) = self.program.resolve_function(name) {
+                let text = name.as_str();
+                if is_core_builtin_name(text) {
+                    Ok(ResolvedCallTarget::CoreBuiltin(text.to_string()))
+                } else if let Some(index) = self.program.resolve_function(name) {
                     Ok(ResolvedCallTarget::Function(index))
                 } else {
-                    Ok(ResolvedCallTarget::Builtin(name.clone()))
+                    Ok(ResolvedCallTarget::Builtin(text.to_string()))
                 }
             }
-            Expr::Member { .. } => {
+            Expr::Member { kind, .. } if *kind == MemberKind::DoubleColon => {
                 let name = self.flatten_member_name(callee)?;
-                Ok(ResolvedCallTarget::Builtin(name))
+                if is_core_builtin_name(&name) {
+                    Ok(ResolvedCallTarget::CoreBuiltin(name))
+                } else {
+                    Ok(ResolvedCallTarget::Builtin(name))
+                }
             }
             other => bail!("unsupported call target: {other:?}"),
         }
@@ -649,14 +717,17 @@ impl<'a> FunctionCompiler<'a> {
     fn collect_member_segments(&self, expr: &Expr, segments: &mut Vec<String>) -> Result<()> {
         match expr {
             Expr::Identifier { name, .. } => {
-                segments.push(name.clone());
+                segments.push(name.to_string());
                 Ok(())
             }
             Expr::Member {
-                object, property, ..
-            } => {
+                object,
+                property,
+                kind,
+                ..
+            } if *kind == MemberKind::DoubleColon => {
                 self.collect_member_segments(object, segments)?;
-                segments.push(property.clone());
+                segments.push(property.to_string());
                 Ok(())
             }
             other => bail!("unsupported member access in call target: {other:?}"),
@@ -665,28 +736,21 @@ impl<'a> FunctionCompiler<'a> {
 
     fn emit_jump(&mut self, opcode: Opcode) -> usize {
         let index = self.instructions.len();
-        self.instructions.push(Instruction::new(opcode, vec![0]));
+        self.instructions
+            .push(Instruction::with_operands(opcode, &[0]));
         index
     }
 
     fn patch_jump(&mut self, index: usize) {
         let target = self.instructions.len() as u32;
         if let Some(instruction) = self.instructions.get_mut(index) {
-            if instruction.operands.is_empty() {
-                instruction.operands.push(target);
-            } else {
-                instruction.operands[0] = target;
-            }
+            instruction.operand_a = target;
         }
     }
 
     fn patch_jump_to(&mut self, index: usize, target: usize) {
         if let Some(instruction) = self.instructions.get_mut(index) {
-            if instruction.operands.is_empty() {
-                instruction.operands.push(target as u32);
-            } else {
-                instruction.operands[0] = target as u32;
-            }
+            instruction.operand_a = target as u32;
         }
     }
 
@@ -765,6 +829,18 @@ impl<'a> FunctionCompiler<'a> {
         self.max_slot = self.max_slot.max(self.next_slot);
         Ok(slot)
     }
+
+    fn acquire_temp_slot(&mut self) -> (u32, u32) {
+        let previous_next = self.next_slot;
+        let slot = self.next_slot;
+        self.next_slot += 1;
+        self.max_slot = self.max_slot.max(self.next_slot);
+        (slot, previous_next)
+    }
+
+    fn release_temp_slot(&mut self, previous_next: u32) {
+        self.next_slot = previous_next;
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -780,6 +856,7 @@ struct LoopFrame {
 enum ResolvedCallTarget {
     Function(usize),
     Builtin(String),
+    CoreBuiltin(String),
 }
 
 #[derive(Clone, Copy)]

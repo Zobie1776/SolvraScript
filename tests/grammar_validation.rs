@@ -1,5 +1,8 @@
 use solvrascript::{
-    ast::{self, BindingKind, Expr, Literal, MatchArm, Pattern, Stmt, StringPart, VariableDecl},
+    ast::{
+        self, AssignTarget, BindingKind, Expr, Literal, MatchArm, Pattern, Stmt, StringPart,
+        VariableDecl,
+    },
     parser, tokenizer,
 };
 
@@ -282,9 +285,9 @@ fn visit_expr(expr: &Expr, coverage: &mut Coverage) {
             }
         }
         Expr::Identifier { .. } => {}
-        Expr::Assignment { target, value, .. } => {
+        Expr::Assign { target, value, .. } => {
             coverage.assignment_expr = true;
-            visit_expr(target, coverage);
+            visit_assign_target(target, coverage);
             visit_expr(value, coverage);
         }
         Expr::Binary { left, right, .. } => {
@@ -299,6 +302,13 @@ fn visit_expr(expr: &Expr, coverage: &mut Coverage) {
         Expr::Call { callee, args, .. } => {
             coverage.call_expr = true;
             visit_expr(callee, coverage);
+            for arg in args {
+                visit_expr(arg, coverage);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            coverage.call_expr = true;
+            visit_expr(receiver, coverage);
             for arg in args {
                 visit_expr(arg, coverage);
             }
@@ -399,6 +409,20 @@ fn visit_expr(expr: &Expr, coverage: &mut Coverage) {
             if let Some(cond) = condition {
                 visit_expr(cond, coverage);
             }
+        }
+    }
+}
+
+fn visit_assign_target(target: &AssignTarget, coverage: &mut Coverage) {
+    match target {
+        AssignTarget::Variable(_) => {}
+        AssignTarget::Index { array, index } => {
+            coverage.index_expr = true;
+            visit_expr(array, coverage);
+            visit_expr(index, coverage);
+        }
+        AssignTarget::Member { object, .. } => {
+            visit_expr(object, coverage);
         }
     }
 }

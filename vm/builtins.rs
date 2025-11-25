@@ -4,7 +4,7 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::Value as JsonValue;
 use serde_json::json;
@@ -25,6 +25,7 @@ pub struct Builtins {
     async_map: HashMap<String, AsyncBuiltin>,
     context: BuiltinContext,
     toml_cache: Arc<Mutex<HashMap<PathBuf, TomlCacheEntry>>>,
+    start_time: Instant,
 }
 
 #[derive(Clone)]
@@ -44,8 +45,14 @@ impl Builtins {
             async_map: HashMap::new(),
             context,
             toml_cache: Arc::new(Mutex::new(HashMap::new())),
+            start_time: Instant::now(),
         };
+        builtins.register_sync("now_ms", builtin_now_ms);
         builtins.register_sync("print", builtin_print);
+        builtins.register_sync("prt", builtin_print);
+        builtins.register_sync("std::io::prt", legacy_builtins::io_print);
+        builtins.register_sync("io::prt", legacy_builtins::io_print);
+        builtins.register_sync("legacy_io_prt", legacy_builtins::io_print);
         builtins.register_sync("std::io::print", legacy_builtins::io_print);
         builtins.register_sync("io::print", legacy_builtins::io_print);
         builtins.register_sync("legacy_io_print", legacy_builtins::io_print);
@@ -65,6 +72,7 @@ impl Builtins {
         builtins.register_sync("std::io::sleep", legacy_builtins::io_sleep);
         builtins.register_sync("io::sleep", legacy_builtins::io_sleep);
         builtins.register_sync("legacy_io_sleep", legacy_builtins::io_sleep);
+        builtins.register_sync("push", builtin_array_push);
         builtins.register_sync("len", legacy_builtins::string_len);
         builtins.register_sync("std::string::len", legacy_builtins::string_len);
         builtins.register_sync("string::len", legacy_builtins::string_len);
@@ -290,6 +298,12 @@ pub struct BuiltinContext {
 }
 
 impl Builtins {
+    fn elapsed_ms(&self) -> i64 {
+        let elapsed = self.start_time.elapsed().as_millis();
+        let capped = elapsed.min(i64::MAX as u128);
+        capped as i64
+    }
+
     fn core_memory_events(&self) -> SolvraResult<Value> {
         if let Some(collector) = &self.context.telemetry {
             let events = collector.snapshot();
@@ -369,6 +383,24 @@ fn builtin_inp(builtins: &Builtins, args: &[Value]) -> SolvraResult<Value> {
 
 fn builtin_sleep(_builtins: &Builtins, args: &[Value]) -> SolvraResult<Value> {
     legacy_builtins::io_sleep(_builtins, args)
+}
+
+fn builtin_now_ms(builtins: &Builtins, _args: &[Value]) -> SolvraResult<Value> {
+    Ok(Value::Integer(builtins.elapsed_ms()))
+}
+
+fn builtin_array_push(_builtins: &Builtins, args: &[Value]) -> SolvraResult<Value> {
+    if let Some(Value::Array(items)) = args.get(0) {
+        let mut next = items.clone();
+        let value = args.get(1).cloned().unwrap_or(Value::Null);
+        next.push(value);
+        Ok(Value::Array(next))
+    } else {
+        let type_name = args.get(0).map(|value| value.type_name()).unwrap_or("null");
+        Err(SolvraError::Internal(format!(
+            "push expects array as first argument, got {type_name}"
+        )))
+    }
 }
 
 fn resolve_json_path<'a>(value: &'a JsonValue, path: &str) -> Option<JsonValue> {

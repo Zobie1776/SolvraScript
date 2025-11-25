@@ -1,5 +1,8 @@
 // SolvraScript advanced usage samples demonstrating new built-ins
 
+import "fs.svs"
+import "sys.svs"
+
 // --- Console Formatting Example -------------------------------------------
 // Demonstrates escape-aware strings and the new endl() helper.
 prt("Console output:\n- item 1\n- item 2");

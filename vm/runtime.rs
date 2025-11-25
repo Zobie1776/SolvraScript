@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -7,17 +9,30 @@ use std::time::{Duration, Instant};
 use tokio::task::{JoinHandle, LocalSet};
 use tokio::time::sleep;
 
+use crate::ir::interpreter::RuntimeValue;
+use crate::ir::ir::SolvraIrModule;
 use solvra_core::concurrency::executor::{TaskExecutor, TaskHandle};
+use solvra_core::jit::dispatcher::{DeoptEvent, JitDispatcher};
+use solvra_core::jit::execute_tier0::execute_tier0;
+use solvra_core::jit::tier0_codegen::{Tier0Artifact, Tier0FunctionId};
+use solvra_core::jit::tier1_mir::{MirFunctionId, MirModule};
+use solvra_core::jit::tier1_osr::Tier1OsrRegistry;
+use solvra_core::memory::deterministic::{ArenaAllocator, Handle, HeapObject};
 use solvra_core::vm::bytecode::{VmBytecode, VmConstant};
 use solvra_core::vm::instruction::{Instruction, Opcode};
 use solvra_core::{SolvraError, SolvraResult, StackFrame, Value};
 
 use super::async_control::AsyncControl;
 use super::builtins::{BuiltinContext, Builtins};
+use super::core_builtins::{core_stub_message, is_core_stub_call};
+use super::profiling::RuntimeProfile;
 use serde::Serialize;
 
 /// Shared bytecode handle passed into the runtime.
 pub type SolvraProgram = Arc<VmBytecode>;
+
+const DYNAMIC_CALL_TARGET: u32 = u32::MAX;
+type ObjectHandle = Handle<HeapObject>;
 
 /// Runtime flags controlling tracing and diagnostics.
 #[derive(Clone)]
@@ -28,6 +43,19 @@ pub struct RuntimeOptions {
     pub telemetry_hook: Option<TelemetryHook>,
     pub telemetry_collector: Option<TelemetryCollector>,
     pub executor: TaskExecutor,
+    pub jit_tier0: bool,
+    pub jit_tier1: bool,
+    pub jit_stats: bool,
+    pub jit_ir_module: Option<Arc<SolvraIrModule>>,
+    pub tier1_mir_module: Option<Arc<MirModule>>,
+    pub tier1_osr_registry: Option<Arc<Tier1OsrRegistry>>,
+    pub jit_deopt_debug: bool,
+    pub jit_tier1_fused_debug: bool,
+    pub jit_osr_debug: bool,
+    pub jit_transfer_debug: bool,
+    pub jit_osr_validate: bool,
+    pub jit_tier2: bool,
+    pub jit_osr_tier2_debug: bool,
 }
 
 impl Default for RuntimeOptions {
@@ -39,6 +67,19 @@ impl Default for RuntimeOptions {
             telemetry_hook: None,
             telemetry_collector: None,
             executor: TaskExecutor::default(),
+            jit_tier0: false,
+            jit_tier1: false,
+            jit_stats: false,
+            jit_ir_module: None,
+            tier1_mir_module: None,
+            tier1_osr_registry: None,
+            jit_deopt_debug: false,
+            jit_tier1_fused_debug: false,
+            jit_osr_debug: false,
+            jit_transfer_debug: false,
+            jit_osr_validate: false,
+            jit_tier2: false,
+            jit_osr_tier2_debug: false,
         }
     }
 }
@@ -206,7 +247,18 @@ pub fn run_bytecode(program: SolvraProgram, options: RuntimeOptions) -> SolvraRe
             None,
             Vec::new(),
         )?;
-        executor.run().await
+        let result = executor.run().await;
+        if executor.ctx.options.jit_deopt_debug {
+            if let Some(events) = executor.drain_deopt_events() {
+                for event in &events {
+                    println!(
+                        "[tier1][deopt] func_id={} site={} pc={}",
+                        event.function_id, event.deopt_site.0, event.snapshot.pc
+                    );
+                }
+            }
+        }
+        result
     })
 }
 
@@ -215,6 +267,8 @@ struct RuntimeContext {
     builtins: Arc<Builtins>,
     options: RuntimeOptions,
     async_control: AsyncControl,
+    arena: Arc<Mutex<ArenaAllocator>>,
+    jit_dispatcher: Option<Mutex<JitDispatcher>>,
 }
 
 impl RuntimeContext {
@@ -225,11 +279,18 @@ impl RuntimeContext {
             telemetry: options.telemetry_collector.clone(),
             async_control: Some(async_control.clone()),
         };
+        let jit_dispatcher = if options.jit_tier0 || options.jit_tier1 || options.jit_stats {
+            Some(Mutex::new(JitDispatcher::new()))
+        } else {
+            None
+        };
         Self {
             program,
             builtins: Arc::new(Builtins::with_context(builtin_context)),
             options,
             async_control,
+            arena: Arc::new(Mutex::new(ArenaAllocator::new())),
+            jit_dispatcher,
         }
     }
 }
@@ -254,6 +315,10 @@ struct RuntimeExecutor {
     async_control: AsyncControl,
     executor_id: Option<u64>,
     lineage: Vec<String>,
+    profile: RuntimeProfile,
+    mir_function_map: HashMap<MirFunctionId, usize>,
+    pending_deopt_frame: bool,
+    pending_deopt_events: Vec<DeoptEvent>,
 }
 
 impl RuntimeExecutor {
@@ -278,10 +343,15 @@ impl RuntimeExecutor {
             async_control,
             executor_id,
             lineage,
+            profile: RuntimeProfile::new(),
+            mir_function_map: HashMap::new(),
+            pending_deopt_frame: false,
+            pending_deopt_events: Vec::new(),
         };
         if let Some(hook) = &executor.ctx.options.telemetry_hook {
             executor.telemetry = Some(Arc::clone(hook));
         }
+        executor.initialize_mir_function_map();
         executor
             .call_function(function_index, args)
             .map_err(|err| executor.enrich_error(err))?;
@@ -295,6 +365,30 @@ impl RuntimeExecutor {
     }
 
     async fn run(&mut self) -> SolvraResult<Value> {
+        self.profile.begin();
+        let result = self.main_loop().await;
+        self.finish_profile();
+        result
+    }
+
+    fn initialize_mir_function_map(&mut self) {
+        self.mir_function_map.clear();
+        let Some(module_arc) = self.ctx.options.tier1_mir_module.as_ref() else {
+            return;
+        };
+        let module = module_arc.as_ref();
+        let mut by_name = HashMap::new();
+        for (index, function) in self.ctx.program.functions.iter().enumerate() {
+            by_name.insert(function.name.clone(), index);
+        }
+        for function in module.functions() {
+            if let Some(index) = by_name.get(&function.name) {
+                self.mir_function_map.insert(function.id, *index);
+            }
+        }
+    }
+
+    async fn main_loop(&mut self) -> SolvraResult<Value> {
         self.record_stack_depth();
         self.record_scheduler_snapshot();
         loop {
@@ -317,6 +411,9 @@ impl RuntimeExecutor {
 
             let mut advance_ip = true;
             match instruction.opcode {
+                Opcode::Halt => {
+                    return Ok(self.stack.pop().unwrap_or(Value::Null));
+                }
                 Opcode::LoadConst => {
                     let value = self.load_constant(&instruction)?;
                     self.stack.push(value);
@@ -369,9 +466,103 @@ impl RuntimeExecutor {
                 }
                 Opcode::MakeList => {
                     let count = instruction.operand_a as usize;
-                    let representation = build_list_string(&mut self.stack, count)
-                        .map_err(|err| self.enrich_error(err))?;
-                    self.stack.push(Value::String(representation));
+                    if count > self.stack.len() {
+                        return Err(self.runtime_exception("list construction underflow"));
+                    }
+                    let start = self.stack.len() - count;
+                    let values = self.stack.drain(start..).collect::<Vec<_>>();
+                    self.stack.push(Value::Array(values));
+                }
+                Opcode::MakeArray => {
+                    let capacity = instruction.operand_a as usize;
+                    let array = if capacity == 0 {
+                        Vec::new()
+                    } else {
+                        Vec::with_capacity(capacity)
+                    };
+                    self.stack.push(Value::Array(array));
+                }
+                Opcode::MakeObject => {
+                    let field_count = instruction.operand_a as usize;
+                    if self.stack.len() < field_count * 2 {
+                        return Err(self.runtime_exception("object construction underflow"));
+                    }
+                    let mut map = HashMap::with_capacity(field_count);
+                    for _ in 0..field_count {
+                        let value = self.stack.pop().unwrap_or(Value::Null);
+                        let key_value = self.stack.pop().unwrap_or(Value::Null);
+                        let key = self.expect_string_key(key_value, "MakeObject")?;
+                        map.insert(key, value);
+                    }
+                    let object = self.allocate_object(map)?;
+                    self.stack.push(object);
+                }
+                Opcode::Push => {
+                    let value = self.stack.pop().unwrap_or(Value::Null);
+                    let mut target = self.stack.pop().unwrap_or(Value::Null);
+                    if let Value::Array(ref mut arr) = target {
+                        arr.push(value);
+                        self.stack.push(target);
+                    } else {
+                        return Err(self.runtime_exception("Push called without array context"));
+                    }
+                }
+                Opcode::Index => {
+                    let index_value = self.stack.pop().unwrap_or(Value::Null);
+                    let array_value = self.stack.pop().unwrap_or(Value::Null);
+                    let idx = self.expect_index(index_value, "Index")?;
+                    if let Value::Array(items) = array_value {
+                        let value = items.get(idx).cloned().unwrap_or(Value::Null);
+                        self.stack.push(value);
+                    } else {
+                        return Err(self.runtime_exception("Index expects array source on stack"));
+                    }
+                }
+                Opcode::SetIndex => {
+                    let value = self.stack.pop().unwrap_or(Value::Null);
+                    let index_value = self.stack.pop().unwrap_or(Value::Null);
+                    let mut array = self.stack.pop().unwrap_or(Value::Null);
+                    let idx = self.expect_index(index_value, "SetIndex")?;
+                    if let Value::Array(ref mut items) = array {
+                        if let Some(slot) = items.get_mut(idx) {
+                            *slot = value;
+                            self.stack.push(array);
+                        } else {
+                            return Err(
+                                self.runtime_exception(format!("SetIndex out of bounds: {idx}"))
+                            );
+                        }
+                    } else {
+                        return Err(
+                            self.runtime_exception("SetIndex expects array source on stack")
+                        );
+                    }
+                }
+                Opcode::LoadMember => {
+                    let name = self
+                        .string_constant(instruction.operand_a as usize)
+                        .ok_or_else(|| {
+                            self.runtime_exception(format!(
+                                "invalid property name constant {}",
+                                instruction.operand_a
+                            ))
+                        })?;
+                    let target = self.stack.pop().unwrap_or(Value::Null);
+                    let value = self.load_member_value(target, &name)?;
+                    self.stack.push(value);
+                }
+                Opcode::SetMember => {
+                    let value = self.stack.pop().unwrap_or(Value::Null);
+                    let key_value = self.stack.pop().unwrap_or(Value::Null);
+                    let target = self.stack.pop().unwrap_or(Value::Null);
+                    let key = self.expect_string_key(key_value, "SetMember")?;
+                    let reference = self.expect_object_reference(target, "SetMember")?;
+                    self.set_object_field(reference, key, value.clone())?;
+                    self.stack.push(value);
+                }
+                Opcode::Print => {
+                    let value = self.stack.pop().unwrap_or(Value::Null);
+                    print!("{}", value.stringify());
                 }
                 Opcode::LoadLambda => {
                     let id = instruction.operand_a as i64;
@@ -396,12 +587,43 @@ impl RuntimeExecutor {
                         .push(execute_logical(instruction.opcode, lhs, rhs));
                 }
                 Opcode::Call => {
-                    let function_index = instruction.operand_a as usize;
                     let arg_count = instruction.operand_b as usize;
                     let args = self.collect_args(arg_count);
-                    self.call_function(function_index, args)
-                        .map_err(|err| self.enrich_error(err))?;
-                    advance_ip = false;
+                    if instruction.operand_a == DYNAMIC_CALL_TARGET {
+                        let callee_value = self.stack.pop().unwrap_or(Value::Null);
+                        let method_name = if instruction.operand_c != 0 {
+                            self.string_constant(instruction.operand_c as usize)
+                        } else {
+                            None
+                        };
+                        self.call_dynamic(callee_value, args, method_name)
+                            .map_err(|err| self.enrich_error(err))?;
+                        advance_ip = false;
+                    } else {
+                        let function_index = instruction.operand_a as usize;
+                        if let Some(value) =
+                            self.execute_tier1_if_available(function_index, &args)?
+                        {
+                            self.stack.push(value);
+                            continue;
+                        }
+                        if self.consume_pending_deopt_frame() {
+                            continue;
+                        }
+                        match self
+                            .execute_tier0_if_available(function_index, &args)
+                            .map_err(|err| self.enrich_error(err))?
+                        {
+                            Some(value) => {
+                                self.stack.push(value);
+                            }
+                            None => {
+                                self.call_function(function_index, args)
+                                    .map_err(|err| self.enrich_error(err))?;
+                                advance_ip = false;
+                            }
+                        }
+                    }
                 }
                 Opcode::CallBuiltin => {
                     let name = self
@@ -414,11 +636,22 @@ impl RuntimeExecutor {
                         })?;
                     let arg_count = instruction.operand_b as usize;
                     let args = self.collect_args(arg_count);
-                    let result = self
-                        .ctx
-                        .builtins
-                        .invoke_sync(&name, &args)
-                        .map_err(|err| self.enrich_error(err))?;
+                    let result = match name.as_str() {
+                        "keys" | "object::keys" | "std::object::keys" => {
+                            self.builtin_object_keys(&args)
+                        }
+                        "values" | "object::values" | "std::object::values" => {
+                            self.builtin_object_values(&args)
+                        }
+                        "has_key" | "object::has_key" | "std::object::has_key" => {
+                            self.builtin_object_has_key(&args)
+                        }
+                        "len" | "std::string::len" | "string::len" => {
+                            self.builtin_len_extended(&args)
+                        }
+                        _ => self.ctx.builtins.invoke_sync(&name, &args),
+                    }
+                    .map_err(|err| self.enrich_error(err))?;
                     self.stack.push(result);
                 }
                 Opcode::CallAsync => {
@@ -429,6 +662,21 @@ impl RuntimeExecutor {
                         .spawn_async_function(function_index, args)
                         .map_err(|err| self.enrich_error(err))?;
                     self.stack.push(Value::Integer(task_id as i64));
+                }
+                Opcode::CoreCall => {
+                    let name = self
+                        .string_constant(instruction.operand_a as usize)
+                        .ok_or_else(|| {
+                            self.runtime_exception(format!(
+                                "invalid core builtin name constant {}",
+                                instruction.operand_a
+                            ))
+                        })?;
+                    let arg_count = instruction.operand_b as usize;
+                    let args = self.collect_args(arg_count);
+                    let result =
+                        invoke_core_builtin(&name, &args).map_err(|err| self.enrich_error(err))?;
+                    self.stack.push(result);
                 }
                 Opcode::Await => {
                     let task_id_value = self.stack.pop().unwrap_or(Value::Null);
@@ -548,7 +796,7 @@ impl RuntimeExecutor {
                         }
                     }
                 }
-                Opcode::Return => {
+                Opcode::Return | Opcode::CoreReturn => {
                     let return_value = self.stack.pop().unwrap_or(Value::Null);
                     let frame = self.frames.pop().expect("frame must exist");
                     self.stack.truncate(frame.stack_base);
@@ -562,6 +810,12 @@ impl RuntimeExecutor {
                         self.stack.push(return_value);
                         continue;
                     }
+                }
+                Opcode::CoreYield => {
+                    eprintln!(
+                        "[solvrascript] warning: CoreYield opcode is not implemented; returning null"
+                    );
+                    return Ok(Value::Null);
                 }
                 Opcode::Nop => {}
             }
@@ -604,6 +858,10 @@ impl RuntimeExecutor {
             .ok_or_else(|| {
                 SolvraError::Internal(format!("invalid function index {function_index}"))
             })?;
+        self.profile.record_function(&function.name);
+        if self.ctx.options.jit_tier0 && self.profile.hot_functions.is_hot(&function.name) {
+            self.request_tier0(&function.name);
+        }
 
         if args.len() != function.arity as usize {
             return Err(SolvraError::Internal(format!(
@@ -626,9 +884,364 @@ impl RuntimeExecutor {
             ip: 0,
             locals,
             stack_base: self.stack.len(),
+            transfer_locals: None,
+            transfer_debug: None,
         };
         self.frames.push(frame);
         Ok(())
+    }
+
+    fn execute_tier1_if_available(
+        &mut self,
+        function_index: usize,
+        args: &[Value],
+    ) -> SolvraResult<Option<Value>> {
+        // @TIER1 integration
+        if !self.ctx.options.jit_tier1 {
+            return Ok(None);
+        }
+        if self.mir_function_map.is_empty() {
+            self.initialize_mir_function_map();
+        }
+        let Some(function) = self.ctx.program.functions.get(function_index) else {
+            return Ok(None);
+        };
+        let Some(mir_module) = self.ctx.options.tier1_mir_module.clone() else {
+            return Ok(None);
+        };
+        let Some(osr_registry) = self.ctx.options.tier1_osr_registry.clone() else {
+            return Ok(None);
+        };
+        let Some(dispatcher_mutex) = &self.ctx.jit_dispatcher else {
+            return Ok(None);
+        };
+        if let Ok(mut dispatcher) = dispatcher_mutex.lock() {
+            dispatcher.set_ic_debug(self.ctx.options.jit_deopt_debug);
+            dispatcher.set_osr_validate(self.ctx.options.jit_osr_validate);
+            dispatcher.prepare_tier1_module(mir_module.as_ref(), Some(osr_registry.as_ref()));
+            if self.ctx.options.jit_deopt_debug {
+                println!("[tier1][exec] {}", function.name);
+            }
+            if self.ctx.options.jit_osr_debug {
+                if let Some(func_id) = mir_module.function_id(&function.name) {
+                    let _ = dispatcher.try_osr_landing_pad(func_id, 0);
+                }
+            }
+            if let Some(result) = dispatcher.try_execute_tier1(&function.name, args) {
+                return Ok(Some(result));
+            }
+        }
+        if let Some(events) = self.drain_deopt_events() {
+            if self.ctx.options.jit_deopt_debug {
+                for event in &events {
+                    println!(
+                        "[tier1][deopt] func_id={} site={} pc={}",
+                        event.function_id, event.deopt_site.0, event.snapshot.pc
+                    );
+                }
+            }
+            if self.handle_deopt_events(function_index, events)? {
+                return Ok(None);
+            }
+        }
+        Ok(None)
+    }
+
+    fn handle_deopt_events(
+        &mut self,
+        function_index: usize,
+        mut events: Vec<DeoptEvent>,
+    ) -> SolvraResult<bool> {
+        if !self.pending_deopt_events.is_empty() {
+            events.extend(self.pending_deopt_events.drain(..));
+        }
+        let mut unmatched = Vec::new();
+        for event in events {
+            let mapped = self.mir_function_map.get(&event.function_id).copied();
+            if mapped == Some(function_index) {
+                if self.ctx.options.jit_transfer_debug {
+                    if let Some(plan) = event.transfer_plan.as_ref() {
+                        let reconstructed = solvra_core::jit::tier1_osr::reconstruct_locals_with_transfer_plan(
+                            plan,
+                            &event.snapshot,
+                        );
+                        println!(
+                            "[transfer][debug] func_id={} locals={} incomplete={} missing={}",
+                            event.function_id,
+                            reconstructed.locals.len(),
+                            reconstructed.incomplete,
+                            reconstructed.missing_fields
+                        );
+                    } else {
+                        println!(
+                            "[transfer][debug] func_id={} no transfer plan available",
+                            event.function_id
+                        );
+                    }
+                }
+                if self.apply_deopt_resume(event)? {
+                    return Ok(true);
+                }
+            } else {
+                unmatched.push(event);
+            }
+        }
+        self.pending_deopt_events.extend(unmatched);
+        Ok(false)
+    }
+
+    fn apply_deopt_resume(&mut self, event: DeoptEvent) -> SolvraResult<bool> {
+        let Some(&function_index) = self.mir_function_map.get(&event.function_id) else {
+            return Ok(false);
+        };
+        let Some(function) = self.ctx.program.functions.get(function_index) else {
+            return Ok(false);
+        };
+        let expected_locals = function.locals as usize;
+        let mut transfer_locals = None;
+        let mut transfer_debug = None;
+        if let Some(plan) = event.transfer_plan.as_ref() {
+            let reconstructed = solvra_core::jit::tier1_osr::reconstruct_locals_with_transfer_plan(
+                plan,
+                &event.snapshot,
+            );
+            let ready = !reconstructed.incomplete && reconstructed.locals.len() == expected_locals;
+            transfer_debug = Some((reconstructed.incomplete, reconstructed.missing_fields));
+            if ready {
+                transfer_locals = Some(reconstructed.locals);
+            }
+        }
+        let mut locals = event.snapshot.locals;
+        if locals.len() > expected_locals {
+            locals.truncate(expected_locals);
+        } else if locals.len() < expected_locals {
+            locals.resize(expected_locals, Value::Null);
+        }
+        let max_ip = function.instructions.len();
+        let ip = if max_ip == 0 {
+            0
+        } else {
+            event.snapshot.pc.min(max_ip - 1)
+        };
+        let stack_base = self.stack.len();
+        for value in event.snapshot.stack {
+            self.stack.push(value);
+        }
+        let frame = CallFrame {
+            function_index,
+            ip,
+            locals,
+            stack_base,
+            transfer_locals,
+            transfer_debug,
+        };
+        self.frames.push(frame);
+        self.pending_deopt_frame = true;
+        Ok(true)
+    }
+
+    fn consume_pending_deopt_frame(&mut self) -> bool {
+        if self.pending_deopt_frame {
+            self.pending_deopt_frame = false;
+            if let Some(frame) = self.frames.last_mut() {
+                let mut applied = false;
+                if self.ctx.options.jit_transfer_debug {
+                    println!("[transfer][debug] snapshot locals: {:?}", frame.locals);
+                    if let Some(info) = frame.transfer_debug {
+                        println!(
+                            "[transfer][debug] metrics incomplete={} missing={}",
+                            info.0, info.1
+                        );
+                    }
+                    if let Some(ref tlocals) = frame.transfer_locals {
+                        println!("[transfer][debug] transfer locals: {:?}", tlocals);
+                    } else {
+                        println!("[transfer][debug] transfer locals: (none)");
+                    }
+                }
+                if self.ctx.options.jit_transfer_debug {
+                    if let Some(ref tlocals) = frame.transfer_locals {
+                        if tlocals.len() == frame.locals.len() {
+                            frame.locals = tlocals.clone();
+                            applied = true;
+                        }
+                    }
+                }
+                if self.ctx.options.jit_transfer_debug {
+                    println!("[transfer][debug] applied_transfer_locals={}", applied);
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    fn execute_tier0_if_available(
+        &mut self,
+        function_index: usize,
+        args: &[Value],
+    ) -> SolvraResult<Option<Value>> {
+        if !self.ctx.options.jit_tier0 {
+            return Ok(None);
+        }
+        let Some(program_function) = self.ctx.program.functions.get(function_index).cloned() else {
+            return Ok(None);
+        };
+        if !self.profile.hot_functions.is_hot(&program_function.name) {
+            return Ok(None);
+        }
+        let Some(module) = self.ctx.options.jit_ir_module.clone() else {
+            return Ok(None);
+        };
+        let Some(artifact) = self.fetch_tier0_artifact(&program_function.name)? else {
+            return Ok(None);
+        };
+        let Some(runtime_args) = self.convert_args_to_runtime(args) else {
+            return Ok(None);
+        };
+        let result = match execute_tier0(&artifact, module.as_ref(), &runtime_args) {
+            Ok(value) => value,
+            Err(_) => return Ok(None),
+        };
+        let Some(vm_value) = self.convert_runtime_to_vm(result) else {
+            return Ok(None);
+        };
+        self.record_tier0_execution(artifact.function_id);
+        self.profile.record_function(&program_function.name);
+        Ok(Some(vm_value))
+    }
+
+    fn fetch_tier0_artifact(&self, function_name: &str) -> SolvraResult<Option<Tier0Artifact>> {
+        let Some(module) = &self.ctx.options.jit_ir_module else {
+            return Ok(None);
+        };
+        let Some(dispatcher_mutex) = &self.ctx.jit_dispatcher else {
+            return Ok(None);
+        };
+        let Some(function) = module.function_by_name(function_name) else {
+            return Ok(None);
+        };
+        let artifact = dispatcher_mutex
+            .lock()
+            .map_err(|_| self.runtime_exception("Tier-0 dispatcher lock poisoned"))?
+            .get_or_compile_tier0(function)
+            .clone();
+        Ok(Some(artifact))
+    }
+
+    fn record_tier0_execution(&self, function_id: Tier0FunctionId) {
+        if let Some(dispatcher_mutex) = &self.ctx.jit_dispatcher {
+            if let Ok(mut dispatcher) = dispatcher_mutex.lock() {
+                dispatcher.record_execution(function_id);
+            }
+        }
+    }
+
+    fn convert_args_to_runtime(&self, args: &[Value]) -> Option<Vec<RuntimeValue>> {
+        let mut converted = Vec::with_capacity(args.len());
+        for value in args {
+            converted.push(self.convert_vm_value_to_runtime(value)?);
+        }
+        Some(converted)
+    }
+
+    fn convert_vm_value_to_runtime(&self, value: &Value) -> Option<RuntimeValue> {
+        match value {
+            Value::Null => Some(RuntimeValue::Null),
+            Value::Boolean(v) => Some(RuntimeValue::Bool(*v)),
+            Value::Integer(v) => Some(RuntimeValue::Int(*v)),
+            Value::Float(v) => Some(RuntimeValue::Float(*v)),
+            Value::String(text) => Some(RuntimeValue::String(text.clone())),
+            Value::Array(items) => {
+                let mut converted = Vec::with_capacity(items.len());
+                for item in items {
+                    converted.push(self.convert_vm_value_to_runtime(item)?);
+                }
+                Some(RuntimeValue::Array(Rc::new(RefCell::new(converted))))
+            }
+            Value::Object(reference) => self.convert_object_to_runtime(*reference),
+        }
+    }
+
+    fn convert_object_to_runtime(&self, reference: ObjectHandle) -> Option<RuntimeValue> {
+        enum Snapshot {
+            Map(HashMap<String, Value>),
+            List(Vec<Value>),
+        }
+
+        let snapshot = {
+            let arena = self.ctx.arena.lock().ok()?;
+            let object = arena.get(reference)?;
+            match object {
+                HeapObject::Map(map) => Snapshot::Map(map.clone()),
+                HeapObject::List(items) => Snapshot::List(items.clone()),
+                HeapObject::Native(_) => return None,
+            }
+        };
+
+        match snapshot {
+            Snapshot::Map(map) => {
+                let mut converted = HashMap::new();
+                for (key, value) in map {
+                    converted.insert(key, self.convert_vm_value_to_runtime(&value)?);
+                }
+                Some(RuntimeValue::Object(Rc::new(RefCell::new(converted))))
+            }
+            Snapshot::List(items) => {
+                let mut converted = Vec::with_capacity(items.len());
+                for item in items {
+                    converted.push(self.convert_vm_value_to_runtime(&item)?);
+                }
+                Some(RuntimeValue::Array(Rc::new(RefCell::new(converted))))
+            }
+        }
+    }
+
+    fn convert_runtime_to_vm(&self, value: RuntimeValue) -> Option<Value> {
+        match value {
+            RuntimeValue::Int(v) => Some(Value::Integer(v)),
+            RuntimeValue::Float(v) => Some(Value::Float(v)),
+            RuntimeValue::Bool(v) => Some(Value::Boolean(v)),
+            RuntimeValue::String(text) => Some(Value::String(text)),
+            RuntimeValue::Null => Some(Value::Null),
+            RuntimeValue::Function(func) => Some(Value::Integer(func.index() as i64)),
+            RuntimeValue::Array(values) => {
+                let items = values
+                    .borrow()
+                    .iter()
+                    .cloned()
+                    .map(|item| self.convert_runtime_to_vm(item))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(Value::Array(items))
+            }
+            RuntimeValue::Object(map) => {
+                let mut converted = HashMap::new();
+                for (key, value) in map.borrow().iter() {
+                    converted.insert(key.clone(), self.convert_runtime_to_vm(value.clone())?);
+                }
+                self.allocate_object(converted).ok()
+            }
+        }
+    }
+
+    fn call_dynamic(
+        &mut self,
+        callee: Value,
+        args: Vec<Value>,
+        method_name: Option<String>,
+    ) -> SolvraResult<()> {
+        match callee {
+            Value::Integer(id) if id >= 0 => self.call_function(id as usize, args),
+            other => {
+                let message = if let Some(name) = method_name {
+                    format!("TypeError: member '{name}' is not callable")
+                } else {
+                    format!("TypeError: {} is not callable", other.type_name())
+                };
+                Err(self.runtime_exception(message))
+            }
+        }
     }
 
     fn collect_args(&mut self, count: usize) -> Vec<Value> {
@@ -640,6 +1253,38 @@ impl RuntimeExecutor {
         args
     }
 
+    fn request_tier0(&self, function_name: &str) {
+        if !self.ctx.options.jit_tier0 {
+            return;
+        }
+        let module = match &self.ctx.options.jit_ir_module {
+            Some(module) => module,
+            None => return,
+        };
+        let dispatcher = match &self.ctx.jit_dispatcher {
+            Some(dispatcher) => dispatcher,
+            None => return,
+        };
+        if let Some(function) = module.function_by_name(function_name) {
+            if let Ok(mut guard) = dispatcher.lock() {
+                guard.request_tier0(function);
+            }
+        }
+    }
+
+    fn expect_index(&self, value: Value, context: &str) -> SolvraResult<usize> {
+        match value {
+            Value::Integer(idx) if idx >= 0 => Ok(idx as usize),
+            Value::Integer(_) => {
+                Err(self.runtime_exception(format!("{context} expects non-negative integer index")))
+            }
+            other => Err(self.runtime_exception(format!(
+                "{context} expects integer index but found {}",
+                other.type_name()
+            ))),
+        }
+    }
+
     fn string_constant(&self, index: usize) -> Option<String> {
         self.ctx
             .program
@@ -649,6 +1294,162 @@ impl RuntimeExecutor {
                 VmConstant::String(value) => Some(value.clone()),
                 _ => None,
             })
+    }
+
+    fn arena_lock(&self) -> SolvraResult<std::sync::MutexGuard<'_, ArenaAllocator>> {
+        self.ctx
+            .arena
+            .lock()
+            .map_err(|_| self.runtime_exception("arena lock poisoned"))
+    }
+
+    fn allocate_object(&self, fields: HashMap<String, Value>) -> SolvraResult<Value> {
+        let mut arena = self.arena_lock()?;
+        let reference = arena.allocate(HeapObject::Map(fields));
+        Ok(Value::Object(reference))
+    }
+
+    fn expect_string_key(&self, value: Value, context: &str) -> SolvraResult<String> {
+        match value {
+            Value::String(text) => Ok(text),
+            other => Err(self.runtime_exception(format!(
+                "{context} expects string key but found {}",
+                other.type_name()
+            ))),
+        }
+    }
+
+    fn expect_object_reference(&self, value: Value, context: &str) -> SolvraResult<ObjectHandle> {
+        if let Value::Object(reference) = value {
+            Ok(reference)
+        } else {
+            Err(self.runtime_exception(format!(
+                "{context} expects object receiver but found {}",
+                value.type_name()
+            )))
+        }
+    }
+
+    fn load_member_value(&self, target: Value, property: &str) -> SolvraResult<Value> {
+        let reference = self.expect_object_reference(target, "LoadMember")?;
+        let arena = self.arena_lock()?;
+        let value = match arena.get(reference) {
+            Some(HeapObject::Map(map)) => map.get(property).cloned().unwrap_or(Value::Null),
+            Some(HeapObject::List(_)) => {
+                return Err(self.runtime_exception("LoadMember cannot access list entries"));
+            }
+            Some(HeapObject::Native(_)) => {
+                return Err(
+                    self.runtime_exception("LoadMember cannot access native object members")
+                );
+            }
+            None => return Err(self.runtime_exception("dangling object reference")),
+        };
+        Ok(value)
+    }
+
+    fn set_object_field(
+        &self,
+        reference: ObjectHandle,
+        key: String,
+        value: Value,
+    ) -> SolvraResult<()> {
+        let mut arena = self.arena_lock()?;
+        let object = arena
+            .get_mut(reference)
+            .ok_or_else(|| self.runtime_exception("dangling object reference"))?;
+        match object {
+            HeapObject::Map(map) => {
+                map.insert(key, value);
+                Ok(())
+            }
+            HeapObject::List(_) => {
+                Err(self.runtime_exception("SetMember cannot target list entries"))
+            }
+            HeapObject::Native(_) => {
+                Err(self.runtime_exception("SetMember cannot mutate native objects"))
+            }
+        }
+    }
+
+    fn builtin_object_keys(&self, args: &[Value]) -> SolvraResult<Value> {
+        let Some(target) = args.get(0) else {
+            return Err(self.runtime_exception("keys() expects object argument"));
+        };
+        let reference = self.expect_object_reference(target.clone(), "keys")?;
+        let arena = self.arena_lock()?;
+        let object = arena
+            .get(reference)
+            .ok_or_else(|| self.runtime_exception("dangling object reference"))?;
+        if let HeapObject::Map(map) = object {
+            let keys = map
+                .keys()
+                .map(|key| Value::String(key.clone()))
+                .collect::<Vec<_>>();
+            Ok(Value::Array(keys))
+        } else {
+            Err(self.runtime_exception("keys() expects object input"))
+        }
+    }
+
+    fn builtin_object_values(&self, args: &[Value]) -> SolvraResult<Value> {
+        let Some(target) = args.get(0) else {
+            return Err(self.runtime_exception("values() expects object argument"));
+        };
+        let reference = self.expect_object_reference(target.clone(), "values")?;
+        let arena = self.arena_lock()?;
+        let object = arena
+            .get(reference)
+            .ok_or_else(|| self.runtime_exception("dangling object reference"))?;
+        if let HeapObject::Map(map) = object {
+            let values = map.values().cloned().collect::<Vec<_>>();
+            Ok(Value::Array(values))
+        } else {
+            Err(self.runtime_exception("values() expects object input"))
+        }
+    }
+
+    fn builtin_object_has_key(&self, args: &[Value]) -> SolvraResult<Value> {
+        if args.len() != 2 {
+            return Err(self.runtime_exception("has_key() expects object and key arguments"));
+        }
+        let reference = self.expect_object_reference(args[0].clone(), "has_key")?;
+        let key = self.expect_string_key(args[1].clone(), "has_key")?;
+        let arena = self.arena_lock()?;
+        let object = arena
+            .get(reference)
+            .ok_or_else(|| self.runtime_exception("dangling object reference"))?;
+        if let HeapObject::Map(map) = object {
+            Ok(Value::Boolean(map.contains_key(&key)))
+        } else {
+            Err(self.runtime_exception("has_key() expects object input"))
+        }
+    }
+
+    fn builtin_len_extended(&self, args: &[Value]) -> SolvraResult<Value> {
+        let Some(target) = args.get(0) else {
+            return Err(self.runtime_exception("len() expects one argument"));
+        };
+        match target {
+            Value::String(text) => Ok(Value::Integer(text.chars().count() as i64)),
+            Value::Array(items) => Ok(Value::Integer(items.len() as i64)),
+            Value::Object(_) => {
+                let reference = self.expect_object_reference(target.clone(), "len")?;
+                let arena = self.arena_lock()?;
+                let object = arena
+                    .get(reference)
+                    .ok_or_else(|| self.runtime_exception("dangling object reference"))?;
+                if let HeapObject::Map(map) = object {
+                    Ok(Value::Integer(map.len() as i64))
+                } else {
+                    Err(self.runtime_exception("len() expects object input"))
+                }
+            }
+            other => {
+                Err(self
+                    .runtime_exception(format!("len() not supported for {}", other.type_name())))
+            }
+        }
     }
 
     fn load_constant(&self, instruction: &Instruction) -> SolvraResult<Value> {
@@ -692,6 +1493,8 @@ impl RuntimeExecutor {
             | Opcode::LoadVar
             | Opcode::StoreVar
             | Opcode::MakeList
+            | Opcode::MakeArray
+            | Opcode::MakeObject
             | Opcode::LoadLambda => {
                 format!("{}", instruction.operand_a)
             }
@@ -1014,6 +1817,17 @@ impl RuntimeExecutor {
         }
     }
 
+    fn drain_deopt_events(&self) -> Option<Vec<DeoptEvent>> {
+        let dispatcher_mutex = self.ctx.jit_dispatcher.as_ref()?;
+        let mut dispatcher = dispatcher_mutex.lock().ok()?;
+        if dispatcher.recent_deopts().is_empty() {
+            return None;
+        }
+        let events = dispatcher.recent_deopts().to_vec();
+        dispatcher.clear_recent_deopts();
+        Some(events)
+    }
+
     fn record_constant_load(&self, index: usize) {
         if let Some(tracker) = &self.ctx.options.memory_tracker {
             tracker.record_constant(index);
@@ -1029,6 +1843,110 @@ impl RuntimeExecutor {
     fn record_timeout_event(&self, stack_depth: usize) {
         if let Some(tracker) = &self.ctx.options.memory_tracker {
             tracker.record_timeout(stack_depth);
+        }
+    }
+
+    fn finish_profile(&mut self) {
+        self.profile.end();
+        if let Some(duration) = self.profile.total_duration {
+            self.emit_telemetry_event(
+                TelemetryEventKind::RuntimeSummary,
+                self.task_label.clone(),
+                Some(duration.as_millis() as u64),
+                None,
+            );
+        }
+        let mut fused_printed = false;
+        self.print_jit_stats();
+        if self.ctx.options.jit_stats && self.ctx.options.jit_tier1 {
+            fused_printed = true;
+        }
+        if self.ctx.options.jit_tier1_fused_debug && !fused_printed {
+            if let Some(dispatcher_mutex) = &self.ctx.jit_dispatcher {
+                if let Ok(dispatcher) = dispatcher_mutex.lock() {
+                    if let Some(cache) = dispatcher.tier1_code_cache() {
+                        crate::tier1::dump_fused_ic_summary(cache);
+                    } else {
+                        println!("[tier1][fused] (no Tier-1 code cache available)");
+                    }
+                }
+            }
+        }
+        if self.ctx.options.jit_osr_debug {
+            if let Some(dispatcher_mutex) = &self.ctx.jit_dispatcher {
+                if let Ok(dispatcher) = dispatcher_mutex.lock() {
+                    if let (Some(mir), Some(registry)) = (
+                        self.ctx.options.tier1_mir_module.as_ref(),
+                        self.ctx.options.tier1_osr_registry.as_ref(),
+                    ) {
+                        println!("[tier1][osr] landing pads:");
+                        for function in mir.functions() {
+                            let mut printed = false;
+                            for pad in registry.landing_pad_iter(function.id) {
+                                if !printed {
+                                    println!("fn {}:", function.name);
+                                    printed = true;
+                                }
+                                println!(
+                                    "  pad ?: bb {}, osr {}, schema=locals:{} temps:{} stack:{}",
+                                    pad.bb_id.0,
+                                    pad.osr_point.0,
+                                    pad.snapshot_schema.locals,
+                                    pad.snapshot_schema.temps,
+                                    pad.snapshot_schema.stack
+                                );
+                            }
+                            if !printed {
+                                println!("fn {}:", function.name);
+                                println!("  (no landing pads)");
+                            }
+                        }
+                    } else if let (Some(cache), Some(mir)) =
+                        (dispatcher.tier1_code_cache(), self.ctx.options.tier1_mir_module.as_ref())
+                    {
+                        crate::tier1::dump_osr_landing_pads(mir.as_ref(), cache);
+                    } else {
+                        println!("[tier1][osr] landing pads unavailable");
+                    }
+                }
+            }
+        }
+    }
+
+    fn print_jit_stats(&self) {
+        if !self.ctx.options.jit_stats {
+            return;
+        }
+        let snapshot = self.profile.hot_functions.snapshot();
+        let Some(dispatcher_mutex) = &self.ctx.jit_dispatcher else {
+            println!("[JIT] Tier-0 dispatcher unavailable.");
+            return;
+        };
+        let Ok(dispatcher) = dispatcher_mutex.lock() else {
+            println!("[JIT] Tier-0 dispatcher unavailable.");
+            return;
+        };
+        println!();
+        if dispatcher.is_empty() {
+            println!("[JIT] Tier-0 compiled functions: (none)");
+            return;
+        }
+        println!("[JIT] Tier-0 compiled functions:");
+        for artifact in dispatcher.compiled_functions() {
+            let calls = snapshot.get(&artifact.name).copied().unwrap_or(0);
+            let hot = self.profile.hot_functions.is_hot(&artifact.name);
+            let execs = dispatcher.execution_count(artifact.function_id);
+            println!(
+                " - {} (calls: {}, hot: {}, tier0_exec_count: {})",
+                artifact.name, calls, hot, execs
+            );
+        }
+        if self.ctx.options.jit_tier1 {
+            if let Some(cache) = dispatcher.tier1_code_cache() {
+                crate::tier1::dump_fused_ic_summary(cache);
+            } else {
+                println!("[JIT] Tier-1 fused ICs: (unavailable)");
+            }
         }
     }
 
@@ -1077,6 +1995,8 @@ struct CallFrame {
     ip: usize,
     locals: Vec<Value>,
     stack_base: usize,
+    transfer_locals: Option<Vec<Value>>,
+    transfer_debug: Option<(bool, usize)>,
 }
 
 fn extract_task_id(value: Value) -> SolvraResult<u64> {
@@ -1088,17 +2008,33 @@ fn extract_task_id(value: Value) -> SolvraResult<u64> {
     }
 }
 
-fn build_list_string(stack: &mut Vec<Value>, count: usize) -> SolvraResult<String> {
-    if count > stack.len() {
-        return Err(SolvraError::Internal("list construction underflow".into()));
+fn invoke_core_builtin(name: &str, args: &[Value]) -> SolvraResult<Value> {
+    match name {
+        "core::print" => {
+            let payload = args
+                .first()
+                .map(|value| value.stringify())
+                .unwrap_or_default();
+            print!("{payload}");
+            Ok(Value::Null)
+        }
+        "core::println" => {
+            let payload = args
+                .first()
+                .map(|value| value.stringify())
+                .unwrap_or_default();
+            println!("{payload}");
+            Ok(Value::Null)
+        }
+        other if is_core_stub_call(other) => {
+            let message = core_stub_message(other);
+            eprintln!("[runtime] {message}");
+            Err(SolvraError::Internal(message))
+        }
+        other => Err(SolvraError::Internal(format!(
+            "unknown core builtin function '{other}'"
+        ))),
     }
-    let start = stack.len() - count;
-    let values = stack.drain(start..).collect::<Vec<_>>();
-    let mut parts = Vec::with_capacity(values.len());
-    for value in values.iter() {
-        parts.push(value_to_string(value));
-    }
-    Ok(format!("[{}]", parts.join(", ")))
 }
 
 fn execute_arithmetic(opcode: Opcode, lhs: Value, rhs: Value) -> SolvraResult<Value> {
@@ -1258,18 +2194,12 @@ fn value_to_number(value: &Value) -> SolvraResult<f64> {
 }
 
 fn value_to_string(value: &Value) -> String {
-    match value {
-        Value::Null => "null".into(),
-        Value::Boolean(flag) => flag.to_string(),
-        Value::Integer(int) => int.to_string(),
-        Value::Float(float) => float.to_string(),
-        Value::String(text) => text.clone(),
-        Value::Object(_) => "<object>".into(),
-    }
+    value.stringify()
 }
 
 fn opcode_name(opcode: Opcode) -> &'static str {
     match opcode {
+        Opcode::Halt => "Halt",
         Opcode::LoadConst => "LoadConst",
         Opcode::LoadVar => "LoadVar",
         Opcode::StoreVar => "StoreVar",
@@ -1284,6 +2214,12 @@ fn opcode_name(opcode: Opcode) -> &'static str {
         Opcode::Jump => "Jump",
         Opcode::JumpIfFalse => "JumpIfFalse",
         Opcode::MakeList => "MakeList",
+        Opcode::MakeArray => "MakeArray",
+        Opcode::MakeObject => "MakeObject",
+        Opcode::LoadMember => "LoadMember",
+        Opcode::SetMember => "SetMember",
+        Opcode::Index => "Index",
+        Opcode::SetIndex => "SetIndex",
         Opcode::LoadLambda => "LoadLambda",
         Opcode::Equal => "Equal",
         Opcode::NotEqual => "NotEqual",
@@ -1296,8 +2232,13 @@ fn opcode_name(opcode: Opcode) -> &'static str {
         Opcode::Call => "Call",
         Opcode::CallBuiltin => "CallBuiltin",
         Opcode::CallAsync => "CallAsync",
+        Opcode::CoreCall => "CoreCall",
         Opcode::Await => "Await",
+        Opcode::CoreReturn => "CoreReturn",
         Opcode::Return => "Return",
+        Opcode::CoreYield => "CoreYield",
+        Opcode::Push => "Push",
+        Opcode::Print => "Print",
         Opcode::Nop => "Nop",
     }
 }

@@ -79,6 +79,12 @@ let config = {
     "env": "dev",
     `message`: message,
 };
+config.host = "solvra.local";
+
+let helper = {
+    greet: lambda |self| -> `Welcome ${self.host}`,
+};
+let greeting = helper.greet();
 
 let classifier = lambda |value| -> match value {
 { kind: "ok", payload } -> payload,

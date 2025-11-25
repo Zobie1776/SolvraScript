@@ -72,10 +72,11 @@ fn stdlib_time_helpers_behave() {
 #[test]
 fn stdlib_fs_helpers_behave() {
     let result = eval_file("tests/stdlib/use_std_fs.svs");
-    let map = match result {
+    let entries = match result {
         Value::Object(entries) => entries,
         other => panic!("expected object from fs script, got {other:?}"),
     };
+    let map = entries.borrow();
     assert_eq!(map.get("ok"), Some(&Value::Bool(true)));
     match map.get("length") {
         Some(Value::Int(len)) => assert!(*len > 0),

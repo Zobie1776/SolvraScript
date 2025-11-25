@@ -1,0 +1,21 @@
+//==============================================
+// File: loop_test.svs
+// Author: Codex Agent
+// License: Duality Public License (DPL v1.0)
+// Goal: Validate VM loop execution with arithmetic updates
+// Objective: Confirm stack traces map to bytecode locations
+//==============================================
+
+let i = 0;
+let total = 0;
+
+while (i < 5) {
+    total = total + i;
+    i = i + 1;
+}
+
+prt(["loop_total", total]);
+
+//==============================================
+// End of file
+//==============================================

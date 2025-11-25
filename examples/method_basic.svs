@@ -1,0 +1,19 @@
+//==============================================
+// File: method_basic.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Demonstrate method-call sugar
+// Objective: Ensure receiver is injected automatically as first argument
+//==============================================
+
+let point = {
+    x: 3,
+    y: 4,
+    length: lambda |self| -> sqrt(self.x * self.x + self.y * self.y),
+};
+
+println(point.length());
+
+//==============================================
+// End of file
+//==============================================

@@ -26,6 +26,7 @@ pub enum TelemetryEventKind {
     TaskJoin,
     TaskPanic,
     TaskCancel,
+    RuntimeSummary,
 }
 
 /// JSON-serialisable view of telemetry emitted by the runtime.

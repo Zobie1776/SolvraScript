@@ -2,7 +2,7 @@
 // solvra_script/parser.rs
 //=============================================
 // Author: SolvraOS Contributors
-// License: MIT (See License)
+// License: Duality Public License (DPL v1.0)
 // Goal: SolvraScript recursive descent parser implementation
 // Objective: Transform token streams into AST nodes consumed by interpreter
 // Formatting: Zobie.format (.solvraformat)
@@ -15,10 +15,11 @@
 #![allow(dead_code)]
 
 use crate::ast::{
-    BinaryOp, BindingKind, CatchBlock, ExportDecl, ExportItem, Expr, FunctionDecl, ImportDecl,
-    ImportSource, Literal, MatchArm, Parameter, Pattern, Program, Stmt, StringPart, Type, UnaryOp,
-    VariableDecl, Visibility,
+    AssignTarget, BinaryOp, BindingKind, CatchBlock, ExportDecl, ExportItem, Expr, FunctionDecl,
+    ImportDecl, ImportSource, Literal, MatchArm, MemberKind, Parameter, Pattern, Program, Stmt,
+    StringPart, Type, UnaryOp, VariableDecl, Visibility,
 };
+use crate::symbol::Symbol;
 use crate::tokenizer::{Position, Token, TokenKind};
 
 //=============================================/*
@@ -144,7 +145,9 @@ impl Parser {
             statements.push(self.parse_statement()?);
         }
 
-        Ok(Program::new(statements, position))
+        let mut program = Program::new(statements, position);
+        program.ensure_entry_point();
+        Ok(program)
     }
 
     /// Parse a single expression and ensure the stream is fully consumed.
@@ -314,7 +317,7 @@ impl Parser {
                 };
                 self.consume_statement_terminator()?;
                 Ok(Stmt::ExportDecl {
-                    decl: ExportDecl::new(ExportItem::Module(name), start_pos),
+                    decl: ExportDecl::new(ExportItem::Module(name.to_string()), start_pos),
                 })
             }
             other => Err(ParseError::InvalidSyntax {
@@ -409,7 +412,7 @@ impl Parser {
             let mut items = Vec::new();
             while !self.check(&TokenKind::RightBrace) {
                 let item = self.consume_identifier("Expected imported item name")?;
-                items.push(item);
+                items.push(item.to_string());
                 if self.check(&TokenKind::Comma) {
                     self.advance();
                 } else {
@@ -425,7 +428,7 @@ impl Parser {
         };
 
         let alias = if self.match_identifier("as") {
-            Some(self.consume_identifier("Expected alias name")?)
+            Some(self.consume_identifier("Expected alias name")?.to_string())
         } else {
             None
         };
@@ -445,18 +448,20 @@ impl Parser {
     fn parse_import_source(&mut self) -> Result<ImportSource, ParseError> {
         match &self.peek().kind {
             TokenKind::String(path) => {
-                let path = path.clone();
+                let path = path.to_string();
                 self.advance();
                 Ok(ImportSource::ScriptPath(path))
             }
             TokenKind::Less => {
                 self.advance();
-                let name = self.consume_identifier("Expected standard module name")?;
+                let name = self
+                    .consume_identifier("Expected standard module name")?
+                    .to_string();
                 self.consume(&TokenKind::Greater, "Expected '>' after module name")?;
                 Ok(ImportSource::StandardModule(name))
             }
             TokenKind::Identifier(name) => {
-                let name = name.clone();
+                let name = name.to_string();
                 self.advance();
                 Ok(ImportSource::BareModule(name))
             }
@@ -590,7 +595,7 @@ impl Parser {
             };
 
             let variable = if let TokenKind::Identifier(name) = &self.peek().kind {
-                let name = name.clone();
+                let name = name.to_string();
                 self.advance();
                 Some(name)
             } else {
@@ -607,7 +612,7 @@ impl Parser {
             });
         }
 
-        let finally_block = if self.check(&TokenKind::Identifier("finally".to_string())) {
+        let finally_block = if self.check(&TokenKind::Identifier(Symbol::from("finally"))) {
             self.advance();
             Some(Box::new(self.parse_block_statement()?))
         } else {
@@ -706,18 +711,32 @@ impl Parser {
         let expr = self.parse_logical_or()?;
 
         if self.check(&TokenKind::Equal) {
-            let start_pos = self.current_position();
+            let assign_pos = expr.position().clone();
             self.advance();
             let value = self.parse_assignment()?;
+            let target = self.assignment_target_from_expr(expr)?;
 
-            return Ok(Expr::Assignment {
-                target: Box::new(expr),
-                value: Box::new(value),
-                position: start_pos,
-            });
+            return Ok(Expr::assignment(target, value, assign_pos));
         }
 
         Ok(expr)
+    }
+
+    fn assignment_target_from_expr(&self, expr: Expr) -> Result<AssignTarget, ParseError> {
+        match expr {
+            Expr::Identifier { name, .. } => Ok(AssignTarget::Variable(name)),
+            Expr::Index { object, index, .. } => Ok(AssignTarget::Index {
+                array: object,
+                index,
+            }),
+            Expr::Member {
+                object, property, ..
+            } => Ok(AssignTarget::Member { object, property }),
+            other => Err(ParseError::InvalidSyntax {
+                message: "unsupported assignment target".to_string(),
+                position: other.position().clone(),
+            }),
+        }
     }
 
     /// Parse logical OR expression: left || right
@@ -884,9 +903,8 @@ impl Parser {
         let mut expr = self.parse_primary()?;
 
         loop {
-            // Store peeked token kind in a local variable to avoid borrow checker issues
-            let kind = &self.peek().kind;
-            if kind == &TokenKind::LeftParen {
+            let kind = self.peek().kind.clone();
+            if kind == TokenKind::LeftParen {
                 let start_pos = self.current_position();
                 self.advance();
 
@@ -903,10 +921,23 @@ impl Parser {
 
                 self.consume(&TokenKind::RightParen, "Expected ')' after arguments")?;
 
-                expr = Expr::Call {
-                    callee: Box::new(expr),
-                    args,
-                    position: start_pos,
+                expr = match expr {
+                    Expr::Member {
+                        object,
+                        property,
+                        kind: MemberKind::Dot,
+                        ..
+                    } => Expr::MethodCall {
+                        receiver: object,
+                        method: property,
+                        args,
+                        position: start_pos,
+                    },
+                    other => Expr::Call {
+                        callee: Box::new(other),
+                        args,
+                        position: start_pos,
+                    },
                 };
             } else if matches!(kind, TokenKind::Dot | TokenKind::DoubleColon) {
                 let start_pos = self.current_position();
@@ -917,8 +948,13 @@ impl Parser {
                     object: Box::new(expr),
                     property,
                     position: start_pos,
+                    kind: if kind == TokenKind::Dot {
+                        MemberKind::Dot
+                    } else {
+                        MemberKind::DoubleColon
+                    },
                 };
-            } else if kind == &TokenKind::LeftBracket {
+            } else if kind == TokenKind::LeftBracket {
                 let start_pos = self.current_position();
                 self.advance();
                 let index = self.parse_expression()?;
@@ -968,7 +1004,7 @@ impl Parser {
                 })
             }
             TokenKind::StringTemplate(s) => {
-                let s = s.clone();
+                let s = Symbol::from(s.as_str());
                 self.advance();
                 Ok(Expr::StringTemplate {
                     parts: vec![StringPart::Literal(s)],
@@ -998,28 +1034,28 @@ impl Parser {
             TokenKind::StringType => {
                 self.advance();
                 Ok(Expr::Identifier {
-                    name: "string".to_string(),
+                    name: Symbol::from("string"),
                     position,
                 })
             }
             TokenKind::IntType => {
                 self.advance();
                 Ok(Expr::Identifier {
-                    name: "int".to_string(),
+                    name: Symbol::from("int"),
                     position,
                 })
             }
             TokenKind::FloatType => {
                 self.advance();
                 Ok(Expr::Identifier {
-                    name: "float".to_string(),
+                    name: Symbol::from("float"),
                     position,
                 })
             }
             TokenKind::BoolType => {
                 self.advance();
                 Ok(Expr::Identifier {
-                    name: "bool".to_string(),
+                    name: Symbol::from("bool"),
                     position,
                 })
             }
@@ -1041,7 +1077,10 @@ impl Parser {
                         self.advance();
                     }
                 }
-                self.consume(&TokenKind::RightBracket, "Expected ']' after array elements")?;
+                self.consume(
+                    &TokenKind::RightBracket,
+                    "Expected ']' after array elements",
+                )?;
                 Ok(Expr::Literal {
                     value: Literal::Array(elements),
                     position,
@@ -1076,14 +1115,9 @@ impl Parser {
                     break;
                 }
                 // Store peeked token kind in a local variable to avoid borrow checker issues
-                let kind = &self.peek().kind;
-                let key = match kind {
-                    TokenKind::Identifier(_)
-                    | TokenKind::String(_)
-                    | TokenKind::StringTemplate(_) => kind
-                        .get_str()
-                        .expect("string variants must expose text")
-                        .to_owned(),
+                let key = match &self.peek().kind {
+                    TokenKind::Identifier(name) | TokenKind::String(name) => name.clone(),
+                    TokenKind::StringTemplate(value) => Symbol::from(value.as_str()),
                     _ => {
                         return Err(ParseError::UnexpectedToken {
                             expected: "property name".to_string(),
@@ -1241,7 +1275,7 @@ impl Parser {
                 Ok(Pattern::Literal(Literal::Null))
             }
             TokenKind::Identifier(name) => {
-                if name == "_" {
+                if name.as_str() == "_" {
                     self.advance();
                     Ok(Pattern::Wildcard)
                 } else {
@@ -1342,7 +1376,7 @@ impl Parser {
     }
 
     // Utility: consume identifier and return its name
-    fn consume_identifier(&mut self, _msg: &str) -> Result<String, ParseError> {
+    fn consume_identifier(&mut self, _msg: &str) -> Result<Symbol, ParseError> {
         match &self.peek().kind {
             TokenKind::Identifier(name) => {
                 let name = name.clone();
@@ -1351,19 +1385,19 @@ impl Parser {
             }
             TokenKind::StringType => {
                 self.advance();
-                Ok("string".to_string())
+                Ok(Symbol::from("string"))
             }
             TokenKind::IntType => {
                 self.advance();
-                Ok("int".to_string())
+                Ok(Symbol::from("int"))
             }
             TokenKind::FloatType => {
                 self.advance();
-                Ok("float".to_string())
+                Ok(Symbol::from("float"))
             }
             TokenKind::BoolType => {
                 self.advance();
-                Ok("bool".to_string())
+                Ok(Symbol::from("bool"))
             }
             _ => Err(ParseError::UnexpectedToken {
                 expected: "identifier".to_string(),
@@ -1375,7 +1409,7 @@ impl Parser {
 
     fn match_identifier(&mut self, expected: &str) -> bool {
         if let TokenKind::Identifier(name) = &self.peek().kind
-            && name == expected
+            && name.as_str() == expected
         {
             self.advance();
             return true;
@@ -1518,7 +1552,7 @@ impl Parser {
                 Ok(Type::Tuple(items))
             }
             TokenKind::Identifier(name) => {
-                let name = name.clone();
+                let name = name.to_string();
                 self.advance();
                 Ok(Type::Custom(name))
             }

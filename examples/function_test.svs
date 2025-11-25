@@ -1,0 +1,19 @@
+//==============================================
+// File: function_test.svs
+// Author: Codex Agent
+// License: Duality Public License (DPL v1.0)
+// Goal: Validate VM execution of function calls
+// Objective: Ensure implicit main compiles and runs bytecode output
+//==============================================
+
+fn greet(name) {
+    return "hello, " + name;
+}
+
+let output = [greet("world"), greet("solvra"), greet("script")];
+
+prt(output);
+
+//==============================================
+// End of file
+//==============================================

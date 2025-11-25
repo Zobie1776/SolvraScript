@@ -1,0 +1,47 @@
+//==============================================
+// File: bench_reflection_keys_values.svs
+// Author: Codex Agent
+// License: Duality Public License (DPL v1.0)
+// Goal: Benchmark reflection helpers on large objects
+// Objective: Measure keys/values/has_key loops with now_ms()
+//==============================================
+
+let field_count = 1000;
+let dataset = {};
+let i = 0;
+
+while (i < field_count) {
+    let field_name = "field_" + to_string(i);
+    dataset[field_name] = i;
+    i = i + 1;
+}
+
+let passes = 250;
+let hit_count = 0;
+let t_start = now_ms();
+let loop_index = 0;
+
+while (loop_index < passes) {
+    let object_keys = keys(dataset);
+    let object_values = values(dataset);
+    hit_count = hit_count + len(object_keys);
+    hit_count = hit_count + len(object_values);
+    has_key(dataset, "field_500");
+    loop_index = loop_index + 1;
+}
+
+let t_end = now_ms();
+println(
+    "bench_reflection_keys_values fields=",
+    len(keys(dataset)),
+    " probes=",
+    passes,
+    " hits=",
+    hit_count,
+    " time_ms=",
+    t_end - t_start
+);
+
+//==============================================
+// End of file
+//==============================================

@@ -1,0 +1,14 @@
+//==============================================
+// File: hybrid_stub_test.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Exercise CoreCall stubs
+// Objective: Ensure core_vm_execute reports NotImplemented instead of crashing
+//==============================================
+
+println("hybrid stub test: invoking core_vm_execute");
+core_vm_execute("examples/fast_add.svc");
+
+//==============================================
+// End of file
+//==============================================

@@ -568,7 +568,9 @@ impl ModuleLoader {
                 other => statements.push(other.clone()),
             }
         }
-        Program::new(statements, program.position.clone())
+        let mut result = Program::new(statements, program.position.clone());
+        result.ensure_entry_point();
+        result
     }
 
     fn cache_file_for(&self, canonical: &str, fingerprint: &str) -> PathBuf {
@@ -609,19 +611,19 @@ impl ModuleLoader {
         for decl in program.find_exports() {
             match &decl.item {
                 ExportItem::Function(func) => {
-                    names.insert(func.name.clone());
+                    names.insert(func.name.to_string());
                 }
                 ExportItem::Variable(var) => {
-                    names.insert(var.name.clone());
+                    names.insert(var.name.to_string());
                 }
                 ExportItem::Class(class) => {
-                    names.insert(class.name.clone());
+                    names.insert(class.name.to_string());
                 }
                 ExportItem::Interface(iface) => {
-                    names.insert(iface.name.clone());
+                    names.insert(iface.name.to_string());
                 }
                 ExportItem::Type(ty) => {
-                    names.insert(ty.name.clone());
+                    names.insert(ty.name.to_string());
                 }
                 ExportItem::Module(name) => {
                     names.insert(name.clone());

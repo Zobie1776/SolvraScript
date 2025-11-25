@@ -2,7 +2,7 @@
 // File: http.svs
 //=====================================================
 // Author: Zachariah Obie
-// License: Apache License 2.0
+// License: Duality Public License (DPL v1.0)
 // Goal: Provide HTTP/HTTPS client operations for making web requests
 // Objective: Enable GET, POST, PUT, DELETE requests with headers, JSON helpers,
 //            timeouts, and retry logic. All operations integrate with sec/sandbox.
@@ -71,7 +71,7 @@ Each function returns a modified copy of the options, allowing chaining:
 
 This pattern provides flexibility while maintaining immutability where practical.
 
-*/---------------------------------------------------------------------------
+---------------------------------------------------------------------------*/
 
 //=====================================================
 // Section 2.0: Core HTTP Methods

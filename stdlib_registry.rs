@@ -2,7 +2,7 @@
 // File: stdlib_registry.rs
 //==================================================
 // Author: ZobieLabs
-// License: Apache License 2.0
+// License: Duality Public License (DPL v1.0)
 // Goal: Track SolvraScript stdlib module locations for angled import syntax
 // Objective: Resolve <module> imports to canonical lib/std paths with caching
 //==================================================

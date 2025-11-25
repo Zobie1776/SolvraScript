@@ -9,6 +9,7 @@
 //=====================================================
 
 // Added by Claude for Zobie.format compliance
+use crate::symbol::{Symbol, intern_symbol};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -36,12 +37,12 @@ pub enum TokenKind {
     // Literals
     Integer(i64),
     Float(f64),
-    String(String),
+    String(Symbol),
     Boolean(bool),
     Null, // Added missing Null variant
 
     // Identifiers and keywords
-    Identifier(String),
+    Identifier(Symbol),
 
     // Keywords
     Let,
@@ -152,10 +153,8 @@ impl TokenKind {
     /// string payloads.
     pub fn get_str(&self) -> Option<&str> {
         match self {
-            TokenKind::Identifier(value)
-            | TokenKind::String(value)
-            | TokenKind::StringTemplate(value)
-            | TokenKind::Comment(value) => Some(value.as_str()),
+            TokenKind::Identifier(value) | TokenKind::String(value) => Some(value.as_str()),
+            TokenKind::StringTemplate(value) | TokenKind::Comment(value) => Some(value.as_str()),
             _ => None,
         }
     }
@@ -467,7 +466,8 @@ impl Tokenizer {
 
                 // Emit the string part before interpolation
                 if !string_value.is_empty() {
-                    self.emit_token(TokenKind::String(string_value.clone()));
+                    let symbol = intern_symbol(&string_value);
+                    self.emit_token(TokenKind::String(symbol));
                     string_value.clear();
                 }
 
@@ -508,7 +508,8 @@ impl Tokenizer {
         self.advance(); // consume closing quote
 
         if !has_interpolation || !string_value.is_empty() {
-            self.emit_token(TokenKind::String(string_value));
+            let symbol = intern_symbol(&string_value);
+            self.emit_token(TokenKind::String(symbol));
         }
 
         Ok(())
@@ -650,7 +651,7 @@ impl Tokenizer {
             .keywords
             .get(&identifier)
             .cloned()
-            .unwrap_or(TokenKind::Identifier(identifier));
+            .unwrap_or_else(|| TokenKind::Identifier(intern_symbol(&identifier)));
         // Use the start position for the token
         let token = Token::new(
             token_kind,
@@ -768,7 +769,7 @@ print("Result: ${x}");"#;
 
         let expected_kinds = vec![
             TokenKind::Let,
-            TokenKind::Identifier("x".to_string()),
+            TokenKind::Identifier(intern_symbol("x")),
             TokenKind::Equal,
             TokenKind::Integer(5),
             TokenKind::Plus,
@@ -781,11 +782,11 @@ print("Result: ${x}");"#;
             TokenKind::RightParen,
             TokenKind::Semicolon,
             TokenKind::Newline,
-            TokenKind::Identifier("print".to_string()),
+            TokenKind::Identifier(intern_symbol("print")),
             TokenKind::LeftParen,
-            TokenKind::String("Result: ".to_string()),
+            TokenKind::String(intern_symbol("Result: ")),
             TokenKind::StringInterpolationStart,
-            TokenKind::Identifier("x".to_string()),
+            TokenKind::Identifier(intern_symbol("x")),
             TokenKind::StringInterpolationEnd,
             TokenKind::RightParen,
             TokenKind::Semicolon,
@@ -809,7 +810,7 @@ print("Result: ${x}");"#;
             TokenKind::Fn,
             TokenKind::If,
             TokenKind::Else,
-            TokenKind::Identifier("identifier".to_string()),
+            TokenKind::Identifier(intern_symbol("identifier")),
             TokenKind::Null,
             TokenKind::Lambda,
             TokenKind::Eof,
@@ -891,7 +892,7 @@ print("Result: ${x}");"#;
 
         let mut expected_kinds: Vec<TokenKind> = cases
             .iter()
-            .map(|case| TokenKind::String((*case).to_string()))
+            .map(|case| TokenKind::String(intern_symbol(*case)))
             .collect();
         expected_kinds.push(TokenKind::Eof);
 
@@ -937,9 +938,9 @@ print("Result: ${x}");"#;
         assert_eq!(
             kinds,
             vec![
-                TokenKind::Identifier("module".into()),
+                TokenKind::Identifier(intern_symbol("module")),
                 TokenKind::DoubleColon,
-                TokenKind::Identifier("item".into()),
+                TokenKind::Identifier(intern_symbol("item")),
                 TokenKind::Semicolon,
                 TokenKind::Eof
             ]
@@ -991,8 +992,8 @@ print("Result: ${x}");"#;
     #[test]
     fn token_kind_get_str_returns_some_for_string_variants() {
         // Each of these token kinds stores a `String` that should be retrievable.
-        let identifier = TokenKind::Identifier("example".to_string());
-        let string_literal = TokenKind::String("value".to_string());
+        let identifier = TokenKind::Identifier(intern_symbol("example"));
+        let string_literal = TokenKind::String(intern_symbol("value"));
         let template_literal = TokenKind::StringTemplate("template".to_string());
         let comment = TokenKind::Comment("note".to_string());
 

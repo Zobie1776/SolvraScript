@@ -1,0 +1,31 @@
+//==============================================
+// File: bench_arith_loop.svs
+// Author: Codex Agent
+// License: Duality Public License (DPL v1.0)
+// Goal: Benchmark arithmetic loops inside SolvraScript VM
+// Objective: Measure integer math throughput using now_ms()
+//==============================================
+
+let iterations = 10000000;
+let acc = 0;
+let i = 0;
+let t_start = now_ms();
+
+while (i < iterations) {
+    acc = acc + (i % 7) - (i % 5);
+    i = i + 1;
+}
+
+let t_end = now_ms();
+println(
+    "bench_arith_loop iterations=",
+    iterations,
+    " acc=",
+    acc,
+    " time_ms=",
+    t_end - t_start
+);
+
+//==============================================
+// End of file
+//==============================================

@@ -1,0 +1,25 @@
+//==============================================
+// File: bench_object_method_call.svs
+// Author: Codex Agent
+// License: Duality Public License (DPL v1.0)
+// Goal: Benchmark method-call sugar on mutable objects
+// Objective: Measure method dispatch throughput using now_ms()
+//==============================================
+let counter = {
+    value: 0,
+    inc: lambda |self| -> (self.value = self.value + 1),
+};
+let iterations = 1000000;
+let i = 0;
+let t_start = now_ms();
+while (i < iterations) {
+    counter.inc();
+    i = i + 1;
+}
+let t_end = now_ms();
+let object_delta = t_end - t_start;
+let object_summary = "bench_object_method_call iterations=" + to_string(iterations) + " final=" + to_string(counter.value) + " time_ms=" + to_string(object_delta);
+println(object_summary);
+//==============================================
+// End of file
+//==============================================

@@ -1,0 +1,24 @@
+//==============================================
+// File: object_introspection.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Validate object utility helpers
+// Objective: Exercise keys/values/has_key/len across values
+//==============================================
+
+let profile = {
+    name: "Zeta",
+    level: 5,
+};
+
+println(keys(profile));
+println(values(profile));
+println(has_key(profile, "name"));
+println(has_key(profile, "missing"));
+println(len(profile));
+println(len(["a", "b", "c"]));
+println(len("inventory"));
+
+//==============================================
+// End of file
+//==============================================

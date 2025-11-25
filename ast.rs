@@ -11,6 +11,7 @@
 // Added by Claude for Zobie.format compliance
 #![allow(dead_code)]
 
+use crate::symbol::Symbol;
 use crate::tokenizer::Position;
 use std::collections::HashMap;
 use std::fmt;
@@ -105,16 +106,24 @@ pub enum UnaryOp {
     BitwiseNot,
 }
 
+/// Assignment targets
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssignTarget {
+    Variable(Symbol),
+    Index { array: Box<Expr>, index: Box<Expr> },
+    Member { object: Box<Expr>, property: Symbol },
+}
+
 /// Literal values
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Integer(i64),
     Float(f64),
-    String(String),
+    String(Symbol),
     Boolean(bool),
     Null,
     Array(Vec<Expr>),
-    Object(Vec<(String, Expr)>), // Changed from HashMap for parser compatibility
+    Object(Vec<(Symbol, Expr)>), // Changed from HashMap for parser compatibility
 }
 
 /// Expressions in SolvraScript
@@ -125,7 +134,7 @@ pub enum Expr {
         position: Position,
     },
     Identifier {
-        name: String,
+        name: Symbol,
         position: Position,
     },
     Binary {
@@ -144,6 +153,12 @@ pub enum Expr {
         args: Vec<Expr>,
         position: Position,
     },
+    MethodCall {
+        receiver: Box<Expr>,
+        method: Symbol,
+        args: Vec<Expr>,
+        position: Position,
+    },
     Index {
         object: Box<Expr>,
         index: Box<Expr>,
@@ -151,8 +166,9 @@ pub enum Expr {
     },
     Member {
         object: Box<Expr>,
-        property: String,
+        property: Symbol,
         position: Position,
+        kind: MemberKind,
     },
     // Add string interpolation and template if referenced
     StringInterpolation {
@@ -169,13 +185,13 @@ pub enum Expr {
         parts: Vec<StringPart>,
         position: Position,
     },
-    Assignment {
-        target: Box<Expr>,
+    Assign {
+        target: AssignTarget,
         value: Box<Expr>,
         position: Position,
     },
     Lambda {
-        params: Vec<String>,
+        params: Vec<Symbol>,
         body: Box<Expr>,
         position: Position,
     },
@@ -215,11 +231,17 @@ pub enum Expr {
     },
     Comprehension {
         element: Box<Expr>,
-        variable: String,
+        variable: Symbol,
         iterable: Box<Expr>,
         condition: Option<Box<Expr>>,
         position: Position,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MemberKind {
+    Dot,
+    DoubleColon,
 }
 
 impl Expr {
@@ -230,12 +252,13 @@ impl Expr {
             Expr::Binary { position, .. } => position,
             Expr::Unary { position, .. } => position,
             Expr::Call { position, .. } => position,
+            Expr::MethodCall { position, .. } => position,
             Expr::Index { position, .. } => position,
             Expr::Member { position, .. } => position,
             Expr::StringInterpolation { position, .. } => position,
             Expr::If { position, .. } => position,
             Expr::StringTemplate { position, .. } => position,
-            Expr::Assignment { position, .. } => position,
+            Expr::Assign { position, .. } => position,
             Expr::Lambda { position, .. } => position,
             Expr::Match { position, .. } => position,
             Expr::Async { position, .. } => position,
@@ -252,7 +275,7 @@ impl Expr {
 /// Parts of a string interpolation
 #[derive(Debug, Clone, PartialEq)]
 pub enum StringPart {
-    Literal(String),
+    Literal(Symbol),
     Expression(Expr),
 }
 
@@ -260,13 +283,13 @@ pub enum StringPart {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
     Literal(Literal),
-    Identifier(String),
+    Identifier(Symbol),
     Wildcard,
     List(Vec<Pattern>),
-    Object(Vec<(String, Pattern)>),
+    Object(Vec<(Symbol, Pattern)>),
     Tuple(Vec<Pattern>),
     Constructor {
-        name: String,
+        name: Symbol,
         fields: Vec<Pattern>,
     },
     Range {
@@ -290,7 +313,7 @@ pub struct MatchArm {
 /// Function parameters
 #[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
-    pub name: String,
+    pub name: Symbol,
     pub param_type: Type,
     pub default_value: Option<Expr>,
     pub position: Position,
@@ -312,7 +335,7 @@ pub enum BindingKind {
 /// Variable declarations
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariableDecl {
-    pub name: String,
+    pub name: Symbol,
     pub var_type: Type,
     pub binding: BindingKind,
     pub is_mutable: bool,
@@ -323,7 +346,7 @@ pub struct VariableDecl {
 /// Function declarations
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDecl {
-    pub name: String,
+    pub name: Symbol,
     pub params: Vec<Parameter>,
     pub return_type: Type,
     pub body: Vec<Stmt>,
@@ -335,8 +358,8 @@ pub struct FunctionDecl {
 /// Class declarations
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
-    pub name: String,
-    pub superclass: Option<String>,
+    pub name: Symbol,
+    pub superclass: Option<Symbol>,
     pub methods: Vec<FunctionDecl>,
     pub fields: Vec<VariableDecl>,
     pub visibility: Visibility,
@@ -346,16 +369,16 @@ pub struct ClassDecl {
 /// Interface declarations
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterfaceDecl {
-    pub name: String,
+    pub name: Symbol,
     pub methods: Vec<FunctionSignature>,
-    pub superinterfaces: Vec<String>,
+    pub superinterfaces: Vec<Symbol>,
     pub position: Position,
 }
 
 /// Function signatures (for interfaces)
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSignature {
-    pub name: String,
+    pub name: Symbol,
     pub params: Vec<Parameter>,
     pub return_type: Type,
     pub is_async: bool,
@@ -462,19 +485,19 @@ pub enum Stmt {
         position: Position,
     },
     For {
-        variable: String,
+        variable: Symbol,
         iterable: Expr,
         body: Box<Stmt>,
         position: Position,
     },
     ForIn {
-        variable: String,
+        variable: Symbol,
         iterable: Expr,
         body: Box<Stmt>,
         position: Position,
     },
     ForOf {
-        variable: String,
+        variable: Symbol,
         iterable: Expr,
         body: Box<Stmt>,
         position: Position,
@@ -488,11 +511,11 @@ pub enum Stmt {
         position: Position,
     },
     Break {
-        label: Option<String>,
+        label: Option<Symbol>,
         position: Position,
     },
     Continue {
-        label: Option<String>,
+        label: Option<Symbol>,
         position: Position,
     },
     Try {
@@ -531,12 +554,12 @@ pub enum Stmt {
         position: Position,
     },
     Label {
-        name: String,
+        name: Symbol,
         stmt: Box<Stmt>,
         position: Position,
     },
     Goto {
-        label: String,
+        label: Symbol,
         position: Position,
     },
 }
@@ -596,6 +619,7 @@ pub struct CatchBlock {
 pub struct Program {
     pub statements: Vec<Stmt>,
     pub position: Position,
+    pub implicit_entry: bool,
 }
 
 /// Namespace declaration
@@ -700,6 +724,7 @@ impl Program {
         Self {
             statements,
             position,
+            implicit_entry: false,
         }
     }
 
@@ -768,6 +793,51 @@ impl Program {
         }
         exports
     }
+
+    /// Ensure the AST contains a callable entry point, synthesizing `fn main()` when necessary.
+    pub fn ensure_entry_point(&mut self) -> bool {
+        let has_main = self.statements.iter().any(|stmt| {
+            if let Stmt::FunctionDecl { decl } = stmt {
+                return decl.name.as_str() == "main";
+            }
+            false
+        });
+        if has_main {
+            self.implicit_entry = false;
+            return false;
+        }
+
+        let mut carryover = Vec::new();
+        let mut body = Vec::new();
+        for stmt in std::mem::take(&mut self.statements) {
+            match stmt {
+                Stmt::FunctionDecl { .. } => carryover.push(stmt),
+                other => body.push(other),
+            }
+        }
+
+        if body.is_empty() {
+            self.statements = carryover;
+            self.implicit_entry = false;
+            return false;
+        }
+
+        let implicit_main = FunctionDecl {
+            name: Symbol::from("main"),
+            params: Vec::new(),
+            return_type: Type::Inferred,
+            body,
+            is_async: false,
+            visibility: Visibility::Private,
+            position: self.position.clone(),
+        };
+        carryover.push(Stmt::FunctionDecl {
+            decl: implicit_main,
+        });
+        self.statements = carryover;
+        self.implicit_entry = true;
+        true
+    }
 }
 
 /// Helper functions for creating AST nodes
@@ -776,7 +846,7 @@ impl Expr {
         Expr::Literal { value, position }
     }
 
-    pub fn identifier(name: String, position: Position) -> Self {
+    pub fn identifier(name: Symbol, position: Position) -> Self {
         Expr::Identifier { name, position }
     }
 
@@ -813,23 +883,24 @@ impl Expr {
         }
     }
 
-    pub fn member(object: Expr, property: String, position: Position) -> Self {
+    pub fn member(object: Expr, property: Symbol, position: Position, kind: MemberKind) -> Self {
         Expr::Member {
             object: Box::new(object),
             property,
             position,
+            kind,
         }
     }
 
-    pub fn assignment(target: Expr, value: Expr, position: Position) -> Self {
-        Expr::Assignment {
-            target: Box::new(target),
+    pub fn assignment(target: AssignTarget, value: Expr, position: Position) -> Self {
+        Expr::Assign {
+            target,
             value: Box::new(value),
             position,
         }
     }
 
-    pub fn lambda(params: Vec<String>, body: Expr, position: Position) -> Self {
+    pub fn lambda(params: Vec<Symbol>, body: Expr, position: Position) -> Self {
         Expr::Lambda {
             params,
             body: Box::new(body),
@@ -925,7 +996,7 @@ impl Stmt {
         }
     }
 
-    pub fn for_stmt(variable: String, iterable: Expr, body: Stmt, position: Position) -> Self {
+    pub fn for_stmt(variable: Symbol, iterable: Expr, body: Stmt, position: Position) -> Self {
         Stmt::For {
             variable,
             iterable,
@@ -945,11 +1016,11 @@ impl Stmt {
         Stmt::Return { value, position }
     }
 
-    pub fn break_stmt(label: Option<String>, position: Position) -> Self {
+    pub fn break_stmt(label: Option<Symbol>, position: Position) -> Self {
         Stmt::Break { label, position }
     }
 
-    pub fn continue_stmt(label: Option<String>, position: Position) -> Self {
+    pub fn continue_stmt(label: Option<Symbol>, position: Position) -> Self {
         Stmt::Continue { label, position }
     }
 
@@ -1004,7 +1075,7 @@ impl Stmt {
         }
     }
 
-    pub fn label_stmt(name: String, stmt: Stmt, position: Position) -> Self {
+    pub fn label_stmt(name: Symbol, stmt: Stmt, position: Position) -> Self {
         Stmt::Label {
             name,
             stmt: Box::new(stmt),
@@ -1012,7 +1083,7 @@ impl Stmt {
         }
     }
 
-    pub fn goto_stmt(label: String, position: Position) -> Self {
+    pub fn goto_stmt(label: Symbol, position: Position) -> Self {
         Stmt::Goto { label, position }
     }
 }
@@ -1413,7 +1484,7 @@ mod tests {
         assert!(matches!(while_stmt, Stmt::While { .. }));
         // Test for statement
         let for_stmt = Stmt::for_stmt(
-            "i".to_string(),
+            crate::symbol::intern_symbol("i"),
             Expr::literal(Literal::Array(vec![]), pos.clone()),
             Stmt::expression(
                 Expr::literal(Literal::Integer(42), pos.clone()),
@@ -1427,7 +1498,7 @@ mod tests {
 
 /// Additional utility implementations
 impl Parameter {
-    pub fn new(name: String, param_type: Type, position: Position) -> Self {
+    pub fn new(name: Symbol, param_type: Type, position: Position) -> Self {
         Self {
             name,
             param_type,
@@ -1443,7 +1514,7 @@ impl Parameter {
 }
 
 impl VariableDecl {
-    pub fn new(name: String, var_type: Type, binding: BindingKind, position: Position) -> Self {
+    pub fn new(name: Symbol, var_type: Type, binding: BindingKind, position: Position) -> Self {
         Self {
             name,
             var_type,
@@ -1466,7 +1537,7 @@ impl VariableDecl {
 }
 
 impl FunctionDecl {
-    pub fn new(name: String, return_type: Type, position: Position) -> Self {
+    pub fn new(name: Symbol, return_type: Type, position: Position) -> Self {
         Self {
             name,
             params: Vec::new(),
@@ -1495,7 +1566,7 @@ impl FunctionDecl {
 }
 
 impl ClassDecl {
-    pub fn new(name: String, position: Position) -> Self {
+    pub fn new(name: Symbol, position: Position) -> Self {
         Self {
             name,
             superclass: None,
@@ -1506,7 +1577,7 @@ impl ClassDecl {
         }
     }
 
-    pub fn with_superclass(mut self, superclass: String) -> Self {
+    pub fn with_superclass(mut self, superclass: Symbol) -> Self {
         self.superclass = Some(superclass);
         self
     }
@@ -1528,7 +1599,7 @@ impl ClassDecl {
 }
 
 impl InterfaceDecl {
-    pub fn new(name: String, position: Position) -> Self {
+    pub fn new(name: Symbol, position: Position) -> Self {
         Self {
             name,
             methods: vec![],
@@ -1542,7 +1613,7 @@ impl InterfaceDecl {
         self
     }
 
-    pub fn with_superinterfaces(mut self, superinterfaces: Vec<String>) -> Self {
+    pub fn with_superinterfaces(mut self, superinterfaces: Vec<Symbol>) -> Self {
         self.superinterfaces = superinterfaces;
         self
     }

@@ -1,0 +1,16 @@
+//==============================================
+// File: array_index_set.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Validate array element assignment syntax
+// Objective: Ensure `a[i] = value` compiles and executes correctly
+//==============================================
+
+let a = [10, 20, 30];
+a[1] = 99;
+println(a);
+println(a[2]);
+
+//==============================================
+// End of file
+//==============================================

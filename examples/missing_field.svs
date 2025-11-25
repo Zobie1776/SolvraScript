@@ -1,0 +1,14 @@
+//==============================================
+// File: missing_field.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Confirm missing member fallback
+// Objective: LoadMember should push null when key is absent
+//==============================================
+
+let shape = { kind: "square" };
+println(shape.area); // prints null
+
+//==============================================
+// End of file
+//==============================================

@@ -2,7 +2,7 @@
 // File: vm/legacy_builtins.rs
 //==================================================
 // Author: ZobieLabs
-// License: Apache License 2.0
+// License: Duality Public License (DPL v1.0)
 // Goal: Provide transitional wrappers for legacy SolvraScript builtins
 // Objective: Allow stdlib modules and classic calls to share identical logic
 //==================================================
@@ -244,20 +244,7 @@ pub(crate) fn math_max(_builtins: &Builtins, args: &[Value]) -> SolvraResult<Val
 //==================================================
 
 pub(crate) fn value_to_string(value: &Value) -> String {
-    match value {
-        Value::Null => "null".into(),
-        Value::Boolean(flag) => flag.to_string(),
-        Value::Integer(int) => int.to_string(),
-        Value::Float(float) => {
-            if float.fract() == 0.0 {
-                format!("{:.0}", float)
-            } else {
-                float.to_string()
-            }
-        }
-        Value::String(text) => text.clone(),
-        Value::Object(_) => "<object>".into(),
-    }
+    value.stringify()
 }
 
 fn value_to_integer(value: &Value) -> Option<i64> {

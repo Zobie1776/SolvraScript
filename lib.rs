@@ -11,14 +11,17 @@
 // Added by Claude for Zobie.format compliance
 pub mod ast;
 pub mod core_bridge;
+pub mod devtools;
 pub mod interpreter;
+pub mod ir;
 pub mod modules;
 pub mod parser;
 pub mod platform;
+pub mod tier1;
 pub mod stdlib_registry;
+pub mod symbol;
 pub mod tokenizer;
 pub mod vm;
-
 pub use stdlib_registry::{StdlibContext, StdlibRegistry};
 pub use vm::{
     TelemetryCollector, TelemetryEvent, TelemetryEventKind, TelemetryHook, TelemetryRecord,

@@ -1,0 +1,24 @@
+//==============================================
+// File: branch_test.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Exercise conditional + loop opcodes
+// Objective: Confirm Jump/JumpIfFalse behavior with nested control flow
+//==============================================
+
+let counter = 0;
+let total = 0;
+while (counter < 5) {
+    if (counter % 2 == 0) {
+        total = total + counter;
+    } else {
+        total = total - counter;
+    }
+    counter = counter + 1;
+}
+
+prt(["branch-total", total]);
+
+//==============================================
+// End of file
+//==============================================

@@ -1,0 +1,19 @@
+//==============================================
+// File: method_with_args.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Verify methods accept additional parameters
+// Objective: Confirm receiver is passed before user arguments
+//==============================================
+
+let scaler = {
+    factor: 2,
+    scale: lambda |self, value, extra| -> (value + extra) * self.factor,
+};
+
+println(scaler.scale(5, 1));
+println(scaler.scale(7, 3));
+
+//==============================================
+// End of file
+//==============================================

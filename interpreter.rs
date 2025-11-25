@@ -2,7 +2,7 @@
 // solvra_script/interpreter.rs
 //=============================================
 // Author: SolvraOS Contributors
-// License: MIT (see LICENSE)
+// License: Duality Public License (DPL v1.0)
 // Goal: SolvraScript runtime interpreter implementation
 // Objective: Execute parsed programs against SolvraCore HAL and module system
 // Formatting: Zobie.format (.solvraformat)
@@ -17,11 +17,12 @@
 use crate::ast::*;
 use crate::core_bridge::{CoreBridge, ModuleRegistration};
 use crate::modules::{ModuleArtifact, ModuleDescriptor, ModuleError, ModuleLoader};
+use crate::symbol::Symbol;
 use crate::vm::compiler;
 // time and home-dir resolved via `crate::platform` abstraction
 use rand::Rng;
 use serde_json::Value as JsonValue;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::{File, OpenOptions};
@@ -31,7 +32,7 @@ use std::path::{Path, PathBuf};
 use crate::platform::{self, CommandResult, CommandSpec, StdioMode};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use ureq::Agent;
 
 use solvra_core::Value as CoreValue;
@@ -106,7 +107,7 @@ pub enum Value {
     Bool(bool),
     String(String),
     Array(Vec<Value>),
-    Object(HashMap<String, Value>),
+    Object(Rc<RefCell<HashMap<String, Value>>>),
     Function {
         name: String,
         params: Vec<String>,
@@ -132,7 +133,7 @@ impl PartialEq for Value {
             (Bool(a), Bool(b)) => a == b,
             (String(a), String(b)) => a == b,
             (Array(a), Array(b)) => a == b,
-            (Object(a), Object(b)) => a == b,
+            (Object(a), Object(b)) => Rc::ptr_eq(a, b) || *a.borrow() == *b.borrow(),
             (
                 Function {
                     name: name_a,
@@ -189,8 +190,9 @@ impl fmt::Display for Value {
                 write!(f, "]")
             }
             Value::Object(obj) => {
+                let map = obj.borrow();
                 write!(f, "{{")?;
-                for (i, (key, val)) in obj.iter().enumerate() {
+                for (i, (key, val)) in map.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
@@ -220,9 +222,13 @@ impl Value {
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::Array(arr) => !arr.is_empty(),
-            Value::Object(obj) => !obj.is_empty(),
+            Value::Object(obj) => !obj.borrow().is_empty(),
             _ => true,
         }
+    }
+
+    pub fn from_object_map(map: HashMap<String, Value>) -> Self {
+        Value::Object(Rc::new(RefCell::new(map)))
     }
 
     /// Get the type name of the value
@@ -354,6 +360,12 @@ pub struct VariableEntry {
 
 type Environment = HashMap<String, VariableEntry>;
 
+#[derive(Clone, Copy)]
+struct DeprecatedAlias {
+    canonical: &'static str,
+    target: fn(&mut Interpreter, &[Value]) -> Result<Value, RuntimeError>,
+}
+
 enum Resource {
     File(File),
     CoreModule {
@@ -385,6 +397,9 @@ pub struct Interpreter {
     core: Arc<CoreBridge>,
     hal: Arc<dyn HardwareAbstractionLayer>,
     dry_run: bool,
+    deprecated_aliases: HashMap<String, DeprecatedAlias>,
+    alias_warnings: HashSet<String>,
+    start_time: Instant,
 }
 
 const HOT_CALL_THRESHOLD: usize = 8;
@@ -430,6 +445,9 @@ impl Interpreter {
             core,
             hal,
             dry_run: false,
+            deprecated_aliases: HashMap::new(),
+            alias_warnings: HashSet::new(),
+            start_time: Instant::now(),
         };
         interpreter.init_builtins();
         crate::modules::core_vm::register_vm_builtins(&mut interpreter);
@@ -460,54 +478,48 @@ impl Interpreter {
         self.eval_expr(expr)
     }
 
+    /// Evaluate a single statement for REPL/devtools scenarios.
+    pub fn eval_statement(&mut self, stmt: &Stmt) -> Result<Option<Value>, RuntimeError> {
+        self.eval_stmt(stmt)
+    }
+
     //=============================================
     //            Section 7: Builtin Registration
     //=============================================
     fn init_builtins(&mut self) {
-        self.register_builtin(
-            "prt",
-            NativeArity::Range { min: 0, max: None },
-            Interpreter::builtin_prt,
-        );
-        // Backward-compatible alias.
-        self.register_builtin(
-            "print",
-            NativeArity::Range { min: 0, max: None },
-            Interpreter::builtin_prt,
-        );
-        self.register_builtin(
+        let variadic = NativeArity::Range { min: 0, max: None };
+        self.register_builtin("prt", variadic, Interpreter::builtin_prt);
+        self.register_deprecated_builtin("print", "prt", variadic, Interpreter::builtin_prt);
+        self.register_deprecated_builtin(
             "std::io::print",
-            NativeArity::Range { min: 0, max: None },
+            "prt",
+            variadic,
             Interpreter::builtin_prt,
         );
-        self.register_builtin(
-            "io::print",
-            NativeArity::Range { min: 0, max: None },
-            Interpreter::builtin_prt,
-        );
-        self.register_builtin(
+        self.register_deprecated_builtin("io::print", "prt", variadic, Interpreter::builtin_prt);
+        self.register_deprecated_builtin(
             "legacy_io_print",
-            NativeArity::Range { min: 0, max: None },
+            "prt",
+            variadic,
             Interpreter::builtin_prt,
         );
-        self.register_builtin(
-            "println",
-            NativeArity::Range { min: 0, max: None },
-            Interpreter::builtin_println,
-        );
-        self.register_builtin(
+        self.register_deprecated_builtin("println", "prt", variadic, Interpreter::builtin_println);
+        self.register_deprecated_builtin(
             "std::io::println",
-            NativeArity::Range { min: 0, max: None },
+            "prt",
+            variadic,
             Interpreter::builtin_println,
         );
-        self.register_builtin(
+        self.register_deprecated_builtin(
             "io::println",
-            NativeArity::Range { min: 0, max: None },
+            "prt",
+            variadic,
             Interpreter::builtin_println,
         );
-        self.register_builtin(
+        self.register_deprecated_builtin(
             "legacy_io_println",
-            NativeArity::Range { min: 0, max: None },
+            "prt",
+            variadic,
             Interpreter::builtin_println,
         );
         self.register_builtin("div", NativeArity::Exact(2), Interpreter::builtin_div);
@@ -705,6 +717,43 @@ impl Interpreter {
             "string::len",
             NativeArity::Exact(1),
             Interpreter::builtin_len,
+        );
+        self.register_builtin("keys", NativeArity::Exact(1), Interpreter::builtin_keys);
+        self.register_builtin(
+            "object::keys",
+            NativeArity::Exact(1),
+            Interpreter::builtin_keys,
+        );
+        self.register_builtin(
+            "std::object::keys",
+            NativeArity::Exact(1),
+            Interpreter::builtin_keys,
+        );
+        self.register_builtin("values", NativeArity::Exact(1), Interpreter::builtin_values);
+        self.register_builtin(
+            "object::values",
+            NativeArity::Exact(1),
+            Interpreter::builtin_values,
+        );
+        self.register_builtin(
+            "std::object::values",
+            NativeArity::Exact(1),
+            Interpreter::builtin_values,
+        );
+        self.register_builtin(
+            "has_key",
+            NativeArity::Exact(2),
+            Interpreter::builtin_has_key,
+        );
+        self.register_builtin(
+            "object::has_key",
+            NativeArity::Exact(2),
+            Interpreter::builtin_has_key,
+        );
+        self.register_builtin(
+            "std::object::has_key",
+            NativeArity::Exact(2),
+            Interpreter::builtin_has_key,
         );
         self.register_builtin(
             "legacy_string_len",
@@ -1286,6 +1335,7 @@ impl Interpreter {
             NativeArity::Exact(0),
             Interpreter::builtin_core_memory_stats,
         );
+        self.register_builtin("now_ms", NativeArity::Exact(0), Interpreter::builtin_now_ms);
     }
 
     pub(crate) fn register_builtin(
@@ -1307,12 +1357,56 @@ impl Interpreter {
         );
     }
 
+    fn register_deprecated_builtin(
+        &mut self,
+        alias: &'static str,
+        canonical: &'static str,
+        arity: NativeArity,
+        target: fn(&mut Interpreter, &[Value]) -> Result<Value, RuntimeError>,
+    ) {
+        self.deprecated_aliases
+            .insert(alias.to_string(), DeprecatedAlias { canonical, target });
+        self.globals.insert(
+            alias.to_string(),
+            VariableEntry {
+                value: Value::NativeFunction {
+                    name: alias.to_string(),
+                    arity,
+                    func: Interpreter::builtin_deprecated_alias,
+                },
+                mutable: false,
+            },
+        );
+    }
+
     fn builtin_prt(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
         // Preserve the exact formatting supplied by the script, including escape sequences
         // that were decoded by the tokenizer. We intentionally avoid inserting separators or
         // implicit newlines so SolvraScript authors have full control over stdout layout.
         write_values_to_stdout(args, false)?;
         Ok(Value::Null)
+    }
+
+    fn builtin_deprecated_alias(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        let alias_name = self
+            .call_stack
+            .last()
+            .cloned()
+            .unwrap_or_else(|| "<native>".to_string());
+        if let Some(alias) = self.deprecated_aliases.get(&alias_name) {
+            if self.alias_warnings.insert(alias_name.clone()) {
+                eprintln!(
+                    "[SolvraScript] builtin '{}' is deprecated; use '{}'",
+                    alias_name, alias.canonical
+                );
+            }
+            (alias.target)(self, args)
+        } else {
+            Err(RuntimeError::Custom(format!(
+                "deprecated builtin '{}' missing canonical handler",
+                alias_name
+            )))
+        }
     }
 
     fn builtin_println(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1461,7 +1555,7 @@ impl Interpreter {
         let length = match &args[0] {
             Value::String(s) => s.chars().count(),
             Value::Array(arr) => arr.len(),
-            Value::Object(obj) => obj.len(),
+            Value::Object(obj) => obj.borrow().len(),
             other => {
                 return Err(RuntimeError::TypeError(format!(
                     "len() not supported for type {}",
@@ -1470,6 +1564,70 @@ impl Interpreter {
             }
         };
         Ok(Value::Int(length as i64))
+    }
+
+    fn builtin_keys(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        match args.first() {
+            Some(Value::Object(map)) => {
+                let keys = map
+                    .borrow()
+                    .keys()
+                    .cloned()
+                    .map(Value::String)
+                    .collect::<Vec<_>>();
+                Ok(Value::Array(keys))
+            }
+            Some(other) => Err(RuntimeError::TypeError(format!(
+                "keys() expects object input, got {}",
+                other.type_name()
+            ))),
+            None => Err(RuntimeError::ArgumentError(
+                "keys() expects one argument".into(),
+            )),
+        }
+    }
+
+    fn builtin_values(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        match args.first() {
+            Some(Value::Object(map)) => {
+                let values = map.borrow().values().cloned().collect::<Vec<_>>();
+                Ok(Value::Array(values))
+            }
+            Some(other) => Err(RuntimeError::TypeError(format!(
+                "values() expects object input, got {}",
+                other.type_name()
+            ))),
+            None => Err(RuntimeError::ArgumentError(
+                "values() expects one argument".into(),
+            )),
+        }
+    }
+
+    fn builtin_has_key(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
+        if args.len() != 2 {
+            return Err(RuntimeError::ArgumentError(
+                "has_key() expects object and key arguments".into(),
+            ));
+        }
+        let map = match &args[0] {
+            Value::Object(map) => map,
+            other => {
+                return Err(RuntimeError::TypeError(format!(
+                    "has_key() expects object input, got {}",
+                    other.type_name()
+                )));
+            }
+        };
+        let key = match &args[1] {
+            Value::String(text) => text,
+            other => {
+                return Err(RuntimeError::TypeError(format!(
+                    "has_key() expects string key, got {}",
+                    other.type_name()
+                )));
+            }
+        };
+        Ok(Value::Bool(map.borrow().contains_key(key)))
     }
 
     fn builtin_type(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1541,7 +1699,7 @@ impl Interpreter {
         map.insert("minute".to_string(), Value::Int(ts.minute as i64));
         map.insert("second".to_string(), Value::Int(ts.second as i64));
         map.insert("nanosecond".to_string(), Value::Int(ts.nanosecond as i64));
-        Ok(Value::Object(map))
+        Ok(Value::from_object_map(map))
     }
 
     fn builtin_push(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1562,14 +1720,14 @@ impl Interpreter {
         match &args[0] {
             Value::Array(items) => {
                 if items.is_empty() {
-                    return Ok(Value::Object(HashMap::from([
+                    return Ok(Value::from_object_map(HashMap::from([
                         ("array".to_string(), Value::Array(Vec::new())),
                         ("value".to_string(), Value::Null),
                     ])));
                 }
                 let mut next = items.clone();
                 let value = next.pop().unwrap_or(Value::Null);
-                Ok(Value::Object(HashMap::from([
+                Ok(Value::from_object_map(HashMap::from([
                     ("array".to_string(), Value::Array(next)),
                     ("value".to_string(), value),
                 ])))
@@ -1616,7 +1774,7 @@ impl Interpreter {
                 }
                 let mut next = items.clone();
                 let removed = next.remove(index);
-                Ok(Value::Object(HashMap::from([
+                Ok(Value::from_object_map(HashMap::from([
                     ("array".to_string(), Value::Array(next)),
                     ("value".to_string(), removed),
                 ])))
@@ -1685,7 +1843,15 @@ impl Interpreter {
                 Err(e) => return Err(e),
             }
         }
-        Ok(last)
+        if program.implicit_entry {
+            let main = self
+                .get_variable("main")
+                .ok_or_else(|| RuntimeError::VariableNotFound("main".to_string()))?;
+            let value = self.call_function(main, Vec::new())?;
+            Ok(Some(value))
+        } else {
+            Ok(last)
+        }
     }
 
     fn eval_stmt(&mut self, stmt: &Stmt) -> Result<Option<Value>, RuntimeError> {
@@ -1827,8 +1993,8 @@ impl Interpreter {
 
             Stmt::FunctionDecl { decl } => {
                 let func = Value::Function {
-                    name: decl.name.clone(),
-                    params: decl.params.iter().map(|p| p.name.clone()).collect(),
+                    name: decl.name.to_string(),
+                    params: decl.params.iter().map(|p| p.name.to_string()).collect(),
                     body: decl.body.clone(),
                     closure: self.capture_environment(),
                 };
@@ -1849,8 +2015,8 @@ impl Interpreter {
         match &decl.item {
             ExportItem::Function(function) => {
                 let func = Value::Function {
-                    name: function.name.clone(),
-                    params: function.params.iter().map(|p| p.name.clone()).collect(),
+                    name: function.name.to_string(),
+                    params: function.params.iter().map(|p| p.name.to_string()).collect(),
                     body: function.body.clone(),
                     closure: self.capture_environment(),
                 };
@@ -1977,7 +2143,7 @@ impl Interpreter {
         );
 
         let mut exports = HashMap::new();
-        exports.insert("module".into(), Value::Object(module_info));
+        exports.insert("module".into(), Value::from_object_map(module_info));
         exports.insert(
             "execute".into(),
             Value::NativeFunction {
@@ -2005,7 +2171,7 @@ impl Interpreter {
         decl: &ImportDecl,
         exports: HashMap<String, Value>,
     ) -> Result<(), RuntimeError> {
-        let namespace_value = Value::Object(exports.clone());
+        let namespace_value = Value::from_object_map(exports.clone());
         if decl.items.is_empty() {
             let binding = decl
                 .alias
@@ -2065,7 +2231,7 @@ impl Interpreter {
             .map(|cap| Value::String(Self::device_capability_label(cap)))
             .collect();
         map.insert("capabilities".to_string(), Value::Array(capabilities));
-        Value::Object(map)
+        Value::from_object_map(map)
     }
 
     fn parse_device_kind_arg(value: &Value) -> Result<DeviceKind, RuntimeError> {
@@ -2227,7 +2393,7 @@ impl Interpreter {
             Expr::Literal { value, .. } => self.eval_literal(value),
             Expr::Identifier { name, .. } => self
                 .get_variable(name)
-                .ok_or_else(|| RuntimeError::VariableNotFound(name.clone())),
+                .ok_or_else(|| RuntimeError::VariableNotFound(name.to_string())),
             Expr::Binary {
                 left,
                 operator,
@@ -2246,17 +2412,7 @@ impl Interpreter {
             }
             Expr::StringTemplate { parts, .. } => self.eval_string_template(parts),
 
-            Expr::Assignment { target, value, .. } => {
-                if let Expr::Identifier { name, .. } = &**target {
-                    let val = self.eval_expr(value)?;
-                    self.assign_variable(name, val.clone())?;
-                    Ok(val)
-                } else {
-                    Err(RuntimeError::TypeError(
-                        "Invalid assignment target".to_string(),
-                    ))
-                }
-            }
+            Expr::Assign { target, value, .. } => self.eval_assignment(target, value),
             Expr::Call { callee, args, .. } => {
                 let func = self.eval_expr(callee)?;
                 let mut arg_values = Vec::new();
@@ -2273,15 +2429,32 @@ impl Interpreter {
             Expr::Member {
                 object, property, ..
             } => {
-                let obj = self.eval_expr(object)?;
-                match obj {
-                    Value::Object(map) => Ok(map.get(property).cloned().unwrap_or(Value::Null)),
-                    _ => Err(RuntimeError::TypeError(format!(
-                        "Cannot access property '{}' on {}",
-                        property,
-                        obj.type_name()
-                    ))),
+                let receiver = self.eval_expr(object)?;
+                self.load_member_value(receiver, property.as_str())
+            }
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                let object_value = self.eval_expr(receiver)?;
+                let callable = self.load_member_value(object_value.clone(), method.as_str())?;
+                if !matches!(
+                    callable,
+                    Value::Function { .. } | Value::NativeFunction { .. }
+                ) {
+                    return Err(RuntimeError::TypeError(format!(
+                        "TypeError: member '{}' is not callable",
+                        method
+                    )));
                 }
+                let mut arg_values = Vec::with_capacity(args.len() + 1);
+                arg_values.push(object_value);
+                for arg in args {
+                    arg_values.push(self.eval_expr(arg)?);
+                }
+                self.call_function(callable, arg_values)
             }
             Expr::Lambda {
                 params,
@@ -2295,7 +2468,7 @@ impl Interpreter {
                 };
                 Ok(Value::Function {
                     name: format!("<lambda@{}:{}>", position.line, position.column),
-                    params: params.clone(),
+                    params: params.iter().map(|p| p.to_string()).collect(),
                     body: vec![body_stmt],
                     closure,
                 })
@@ -2308,12 +2481,127 @@ impl Interpreter {
         }
     }
 
+    fn eval_assignment(
+        &mut self,
+        target: &AssignTarget,
+        value_expr: &Expr,
+    ) -> Result<Value, RuntimeError> {
+        match target {
+            AssignTarget::Variable(name) => {
+                let val = self.eval_expr(value_expr)?;
+                self.assign_variable(name.as_str(), val.clone())?;
+                Ok(val)
+            }
+            AssignTarget::Index { array, index } => {
+                self.eval_index_assignment(array, index, value_expr)
+            }
+            AssignTarget::Member { object, property } => {
+                self.eval_member_assignment(object, property, value_expr)
+            }
+        }
+    }
+
+    fn eval_index_assignment(
+        &mut self,
+        array: &Expr,
+        index: &Expr,
+        value_expr: &Expr,
+    ) -> Result<Value, RuntimeError> {
+        let array_name = match array {
+            Expr::Identifier { name, .. } => name,
+            _ => {
+                return Err(RuntimeError::TypeError(
+                    "unsupported assignment target".to_string(),
+                ));
+            }
+        };
+
+        let mut array_value = self
+            .get_variable(array_name.as_str())
+            .ok_or_else(|| RuntimeError::VariableNotFound(array_name.to_string()))?;
+
+        let idx_value = self.eval_expr(index)?;
+        let idx = self.expect_index_value(idx_value)?;
+        let new_value = self.eval_expr(value_expr)?;
+
+        match &mut array_value {
+            Value::Array(items) => {
+                if idx >= items.len() {
+                    return Err(RuntimeError::TypeError(format!(
+                        "array index {} out of bounds",
+                        idx
+                    )));
+                }
+                items[idx] = new_value.clone();
+            }
+            _ => {
+                return Err(RuntimeError::TypeError(
+                    "Index assignment requires array target".to_string(),
+                ));
+            }
+        }
+
+        self.assign_variable(array_name.as_str(), array_value)?;
+        Ok(new_value)
+    }
+
+    fn eval_member_assignment(
+        &mut self,
+        object: &Expr,
+        property: &Symbol,
+        value_expr: &Expr,
+    ) -> Result<Value, RuntimeError> {
+        let receiver = self.eval_expr(object)?;
+        let value = self.eval_expr(value_expr)?;
+        self.assign_object_field(receiver, property.as_str(), value)
+    }
+
+    fn assign_object_field(
+        &self,
+        receiver: Value,
+        property: &str,
+        value: Value,
+    ) -> Result<Value, RuntimeError> {
+        match receiver {
+            Value::Object(map) => {
+                map.borrow_mut().insert(property.to_string(), value.clone());
+                Ok(value)
+            }
+            other => Err(RuntimeError::TypeError(format!(
+                "cannot assign member '{}' on {}",
+                property,
+                other.type_name()
+            ))),
+        }
+    }
+
+    fn load_member_value(&self, receiver: Value, property: &str) -> Result<Value, RuntimeError> {
+        match receiver {
+            Value::Object(map) => Ok(map.borrow().get(property).cloned().unwrap_or(Value::Null)),
+            other => Err(RuntimeError::TypeError(format!(
+                "cannot access member '{}' on {}",
+                property,
+                other.type_name()
+            ))),
+        }
+    }
+
+    fn expect_index_value(&self, value: Value) -> Result<usize, RuntimeError> {
+        match value {
+            Value::Int(i) if i >= 0 => Ok(i as usize),
+            Value::Float(f) if f >= 0.0 && f.fract() == 0.0 => Ok(f as usize),
+            _ => Err(RuntimeError::TypeError(
+                "array index must be a non-negative integer".to_string(),
+            )),
+        }
+    }
+
     fn eval_literal(&mut self, lit: &Literal) -> Result<Value, RuntimeError> {
         match lit {
             Literal::Integer(n) => Ok(Value::Int(*n)),
             Literal::Float(f) => Ok(Value::Float(*f)),
             Literal::Boolean(b) => Ok(Value::Bool(*b)),
-            Literal::String(s) => Ok(Value::String(s.clone())),
+            Literal::String(s) => Ok(Value::String(s.to_string())),
             Literal::Null => Ok(Value::Null),
 
             Literal::Array(arr) => {
@@ -2328,9 +2616,9 @@ impl Interpreter {
                 let mut map = HashMap::new();
                 for (key, expr) in props {
                     let value = self.eval_expr(expr)?;
-                    map.insert(key.clone(), value);
+                    map.insert(key.to_string(), value);
                 }
-                Ok(Value::Object(map))
+                Ok(Value::from_object_map(map))
             }
         }
     }
@@ -2508,7 +2796,7 @@ impl Interpreter {
         if let Some(env_values) = spec.get("env") {
             let env_map = expect_object(env_values, "process_run.env")?;
             let mut vec = Vec::new();
-            for (key, value) in env_map {
+            for (key, value) in env_map.iter() {
                 vec.push((key.clone(), value.to_string()));
             }
             cmd.env = Some(vec);
@@ -2526,7 +2814,12 @@ impl Interpreter {
         }
 
         if self.dry_run {
-            return Ok(Value::Object(process_status_map(true, Some(0), "", "")));
+            return Ok(Value::from_object_map(process_status_map(
+                true,
+                Some(0),
+                "",
+                "",
+            )));
         }
 
         let result: CommandResult =
@@ -2538,7 +2831,7 @@ impl Interpreter {
             )));
         }
 
-        Ok(Value::Object(process_status_map(
+        Ok(Value::from_object_map(process_status_map(
             result.success,
             result.exit_code,
             &result.stdout,
@@ -2558,7 +2851,7 @@ impl Interpreter {
             let mut map = HashMap::new();
             map.insert("ok".to_string(), Value::Bool(true));
             map.insert("pid".to_string(), Value::Int(0));
-            return Ok(Value::Object(map));
+            return Ok(Value::from_object_map(map));
         }
 
         // Build CommandSpec for spawning
@@ -2591,7 +2884,7 @@ impl Interpreter {
         if let Some(env_values) = spec.get("env") {
             let env_map = expect_object(env_values, "process_spawn.env")?;
             let mut vec = Vec::new();
-            for (key, value) in env_map {
+            for (key, value) in env_map.iter() {
                 vec.push((key.clone(), value.to_string()));
             }
             cmd.env = Some(vec);
@@ -2626,7 +2919,7 @@ impl Interpreter {
         let mut map = HashMap::new();
         map.insert("ok".to_string(), Value::Bool(true));
         map.insert("pid".to_string(), Value::Int(pid as i64));
-        Ok(Value::Object(map))
+        Ok(Value::from_object_map(map))
     }
 
     fn builtin_open_file(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -2833,7 +3126,7 @@ impl Interpreter {
 
         if let Some(headers) = args.get(2) {
             if let Value::Object(map) = headers {
-                for (key, value) in map {
+                for (key, value) in map.borrow().iter() {
                     request = request.set(key, &value.to_string());
                 }
             } else {
@@ -2919,6 +3212,12 @@ impl Interpreter {
         }
     }
 
+    fn builtin_now_ms(&mut self, _args: &[Value]) -> Result<Value, RuntimeError> {
+        let elapsed = self.start_time.elapsed().as_millis();
+        let capped = elapsed.min(i64::MAX as u128);
+        Ok(Value::Int(capped as i64))
+    }
+
     fn builtin_io_stdout_writeln(&mut self, args: &[Value]) -> Result<Value, RuntimeError> {
         platform::println(&args[0].to_string())
             .map_err(|e| RuntimeError::IoError(e.to_string()))?;
@@ -2973,6 +3272,13 @@ impl Interpreter {
             CoreValue::Integer(i) => Ok(Value::Int(i)),
             CoreValue::Float(f) => Ok(Value::Float(f)),
             CoreValue::String(s) => Ok(Value::String(s)),
+            CoreValue::Array(items) => {
+                let mut converted = Vec::with_capacity(items.len());
+                for item in items {
+                    converted.push(self.convert_core_value(item)?);
+                }
+                Ok(Value::Array(converted))
+            }
             CoreValue::Object(_) => self.wrap_core_allocation(value, "solvra_object"),
         }
     }
@@ -3002,7 +3308,7 @@ impl Interpreter {
             "allocations".into(),
             Value::Int(stats.allocation_count as i64),
         );
-        Value::Object(map)
+        Value::from_object_map(map)
     }
 
     fn eval_string_template(&mut self, parts: &[StringPart]) -> Result<Value, RuntimeError> {
@@ -3166,7 +3472,7 @@ impl Interpreter {
                 }
             }
             (Value::Object(obj), Value::String(key)) => {
-                Ok(obj.get(&key).cloned().unwrap_or(Value::Null))
+                Ok(obj.borrow().get(&key).cloned().unwrap_or(Value::Null))
             }
             (Value::String(s), Value::Int(idx)) => {
                 let chars: Vec<char> = s.chars().collect();
@@ -3208,7 +3514,10 @@ impl Interpreter {
                         args.len()
                     )));
                 }
-                func(self, &args)
+                self.call_stack.push(name.clone());
+                let result = func(self, &args);
+                self.call_stack.pop();
+                result
             }
 
             Value::Function {
@@ -3307,8 +3616,9 @@ impl Interpreter {
         self.locals.pop();
     }
 
-    fn define_variable(&mut self, name: String, value: Value, mutable: bool) {
+    fn define_variable(&mut self, name: impl Into<String>, value: Value, mutable: bool) {
         let entry = VariableEntry { value, mutable };
+        let name = name.into();
         if let Some(scope) = self.locals.last_mut() {
             scope.insert(name, entry);
         } else {
@@ -3408,12 +3718,26 @@ impl Drop for Interpreter {
 fn write_values_to_stdout(args: &[Value], newline: bool) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     for value in args {
-        write!(stdout, "{value}")?;
+        let rendered = format_stdout_value(value);
+        write!(stdout, "{rendered}")?;
     }
     if newline {
         writeln!(stdout)?;
     }
     stdout.flush()
+}
+
+fn format_stdout_value(value: &Value) -> String {
+    match value {
+        Value::Array(items) => {
+            let mut parts = Vec::with_capacity(items.len());
+            for item in items {
+                parts.push(format_stdout_value(item));
+            }
+            format!("[{}]", parts.join(", "))
+        }
+        _ => value.to_string(),
+    }
 }
 
 fn expect_number(value: &Value, name: &str) -> Result<f64, RuntimeError> {
@@ -3448,9 +3772,9 @@ fn expect_handle_id(value: &Value) -> Result<u64, RuntimeError> {
 fn expect_object<'a>(
     value: &'a Value,
     context: &str,
-) -> Result<&'a HashMap<String, Value>, RuntimeError> {
+) -> Result<Ref<'a, HashMap<String, Value>>, RuntimeError> {
     match value {
-        Value::Object(map) => Ok(map),
+        Value::Object(map) => Ok(map.borrow()),
         other => Err(RuntimeError::TypeError(format!(
             "{context} expects object, got {}",
             other.type_name()
@@ -3477,7 +3801,7 @@ fn process_status_map(
     );
 
     let mut result = HashMap::new();
-    result.insert("status".to_string(), Value::Object(status));
+    result.insert("status".to_string(), Value::from_object_map(status));
     result.insert("stdout".to_string(), Value::String(stdout.to_string()));
     result.insert("stderr".to_string(), Value::String(stderr.to_string()));
     result
@@ -3495,7 +3819,7 @@ pub(crate) fn value_to_json(value: &Value) -> JsonValue {
         Value::Array(values) => JsonValue::Array(values.iter().map(value_to_json).collect()),
         Value::Object(map) => {
             let mut json_map = serde_json::Map::new();
-            for (key, val) in map {
+            for (key, val) in map.borrow().iter() {
                 json_map.insert(key.clone(), value_to_json(val));
             }
             JsonValue::Object(json_map)
@@ -3526,7 +3850,7 @@ pub(crate) fn json_to_value(json: &JsonValue) -> Value {
             for (key, val) in map {
                 object.insert(key.clone(), json_to_value(val));
             }
-            Value::Object(object)
+            Value::from_object_map(object)
         }
     }
 }
@@ -3648,7 +3972,7 @@ mod tests {
         let Value::Object(device) = &list[0] else {
             panic!("expected object entry");
         };
-        assert!(device.contains_key("handle"));
+        assert!(device.borrow().contains_key("handle"));
     }
 
     #[test]
@@ -3663,7 +3987,14 @@ mod tests {
             let Value::Object(device) = entry else {
                 continue;
             };
-            let Some(Value::String(handle)) = device.get("handle") else {
+            let handle_value = {
+                let map = device.borrow();
+                match map.get("handle") {
+                    Some(Value::String(handle)) => Some(handle.clone()),
+                    _ => None,
+                }
+            };
+            let Some(handle) = handle_value else {
                 continue;
             };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3706,9 +4037,12 @@ mod tests {
         let Value::Object(first) = &list[0] else {
             panic!("expected object");
         };
-        let handle = match first.get("handle") {
-            Some(Value::String(s)) => s.clone(),
-            _ => panic!("missing handle"),
+        let handle = {
+            let map = first.borrow();
+            match map.get("handle") {
+                Some(Value::String(s)) => s.clone(),
+                _ => panic!("missing handle"),
+            }
         };
         let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             call_builtin(
@@ -3756,7 +4090,8 @@ mod tests {
 
         let popped = call_builtin(&mut interpreter, "pop", vec![pushed]);
         if let Value::Object(map) = popped {
-            assert!(matches!(map.get("value"), Some(Value::Int(3))));
+            let borrow = map.borrow();
+            assert!(matches!(borrow.get("value"), Some(Value::Int(3))));
         } else {
             panic!("expected object from pop");
         }

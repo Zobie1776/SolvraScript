@@ -1,0 +1,26 @@
+//==============================================
+// File: solvra_script/examples/jit_osr_probe_1.svs
+// Author: Codex Agent
+// License: Duality Public License (DPL v1.0)
+// Goal: Exercise Tier-1 OSR landing pad metadata
+// Objective: Trigger function entry and loop header OSR points under debug probes
+//==============================================
+
+fn sum_loop(n) {
+    let i = 0;
+    let acc = 0;
+    while (i < n) {
+        acc = acc + i;
+        i = i + 1;
+    }
+    return acc;
+}
+
+fn main() {
+    let result = sum_loop(10);
+    prt(result);
+}
+
+//==============================================
+// End of file
+//==============================================

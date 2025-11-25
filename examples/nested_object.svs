@@ -1,0 +1,17 @@
+//==============================================
+// File: nested_object.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Exercise nested object member mutation
+// Objective: Ensure chained member assignments propagate through GC handles
+//==============================================
+
+let settings = { engine: { mode: "safe", retries: 1 } };
+settings.engine.mode = "turbo";
+settings.engine.retries = settings.engine.retries + 1;
+println(settings.engine.mode);
+println(settings.engine.retries);
+
+//==============================================
+// End of file
+//==============================================

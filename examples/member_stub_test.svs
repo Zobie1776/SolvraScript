@@ -1,0 +1,14 @@
+//==============================================
+// File: member_stub_test.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Regression for member access
+// Objective: Ensure objects expose fields without panics
+//==============================================
+
+let counter = { value: 42 };
+println(counter.value);
+
+//==============================================
+// End of file
+//==============================================

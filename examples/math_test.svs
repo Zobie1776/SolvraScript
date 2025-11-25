@@ -1,0 +1,19 @@
+//==============================================
+// File: math_test.svs
+// Author: Codex/AGENT
+// License: Duality Public License (DPL v1.0)
+// Goal: Validate arithmetic opcode coverage
+// Objective: Ensure Add/Sub/Mul/Div/Mod behave consistently across VM layers
+//==============================================
+
+let a = 6 + 3;
+let b = 6 - 3;
+let c = 6 * 3;
+let d = 12 / 3;
+let e = 14 % 5;
+
+prt([a, b, c, d, e]);
+
+//==============================================
+// End of file
+//==============================================
