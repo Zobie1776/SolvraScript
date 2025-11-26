@@ -18,8 +18,8 @@ use solvra_core::jit::tier1_lowering::{
     SsaOpcode, SsaTerminator, SsaValueId,
 };
 use solvra_core::jit::tier1_codegen::Tier1FusedIcArtifact;
-use solvra_core::jit::tier1_mir::{MirModule, MirValueKind};
-use solvra_core::jit::tier1_osr::Tier1OsrRegistry;
+use solvra_core::jit::tier1_mir::{MirFunctionId, MirModule, MirValueKind};
+use solvra_core::jit::tier1_osr::{Tier1OsrRegistry, ValueTransferPlan};
 use solvra_core::jit::tier1_peep::peephole_optimize_module;
 use solvra_core::jit::tier1_regalloc::{self, ModuleAllocation, export_regalloc_to_transfer_plan};
 use solvra_core::jit::tier1_typeinfer::type_infer_module;
@@ -30,6 +30,12 @@ use std::collections::HashMap;
 pub struct LoweredTier1Module {
     pub module: MirModule,
     pub osr_registry: Tier1OsrRegistry,
+}
+
+impl LoweredTier1Module {
+    pub fn transfer_plan(&self, function: MirFunctionId) -> Option<&ValueTransferPlan> {
+        self.osr_registry.transfer_plan(function)
+    }
 }
 
 pub fn lower_ir_to_mir(module: &SolvraIrModule) -> LoweredTier1Module {

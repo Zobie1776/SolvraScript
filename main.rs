@@ -28,7 +28,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
-use clap::Parser;
+use bincode;
+use clap::{Args as ClapArgs, Parser, Subcommand};
 use ir::interpreter::{IrInterpreter, RuntimeValue};
 use ir::lowering::lower_program;
 use ir::verify::verify_function;
@@ -46,7 +47,30 @@ use vm::runtime::{MemoryTracker, RuntimeOptions, SolvraProgram, run_bytecode};
 #[derive(Parser, Debug)]
 #[command(name = "solvrascript", about = "SolvraScript CLI")]
 pub struct Args {
-    /// Path to the script to execute.
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Execute a .svs source file or .svc bytecode.
+    Run(RunArgs),
+    /// Compile a .svs source file into .svc bytecode.
+    Compile(CompileArgs),
+}
+
+#[derive(ClapArgs, Debug, Clone)]
+pub struct CompileArgs {
+    /// Input .svs source file.
+    pub input: PathBuf,
+    /// Output .svc bytecode file.
+    #[arg(short = 'o', long = "output")]
+    pub output: PathBuf,
+}
+
+#[derive(ClapArgs, Debug, Clone)]
+pub struct RunArgs {
+    /// Path to the script or bytecode to execute.
     pub script: PathBuf,
 
     /// Print parsed AST before execution.
@@ -117,6 +141,13 @@ pub struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
+    match args.command {
+        Command::Compile(cmd) => compile_svs_to_svc(&cmd.input, &cmd.output),
+        Command::Run(cmd) => run_entry(cmd),
+    }
+}
+
+fn run_entry(args: RunArgs) -> Result<()> {
     let options = RuntimeOptions {
         jit_tier0: args.jit_tier0,
         jit_tier1: args.jit_tier1,
@@ -127,31 +158,43 @@ fn main() -> Result<()> {
         ..Default::default()
     };
 
-    run_source_file(
-        &args.script,
-        options,
-        args.print_ast,
-        args.enable_ir,
-        args.emit_tier0,
-        args.emit_mir,
-        args.emit_mir_verified,
-        args.emit_regalloc,
-        args.jit_tier0,
-        args.jit_tier1,
-        args.jit_stats,
-        args.jit_deopt_debug,
-        args.jit_tier1_fused_debug,
-        args.jit_osr_debug,
-        args.jit_transfer_debug,
-        args.jit_osr_validate,
-        None,
-        None,
-    )
+    if args
+        .script
+        .extension()
+        .map(|ext| ext == "svc")
+        .unwrap_or(false)
+    {
+        run_svc_file(&args.script, options)
+    } else {
+        let program = parse_source(&args.script)?;
+        run_source_program(
+            &args.script,
+            &program,
+            options,
+            args.print_ast,
+            args.enable_ir,
+            args.emit_tier0,
+            args.emit_mir,
+            args.emit_mir_verified,
+            args.emit_regalloc,
+            args.jit_tier0,
+            args.jit_tier1,
+            args.jit_stats,
+            args.jit_deopt_debug,
+            args.jit_tier1_fused_debug,
+            args.jit_osr_debug,
+            args.jit_transfer_debug,
+            args.jit_osr_validate,
+            None,
+            None,
+        )
+    }
 }
 
-fn run_source_file(
+fn run_source_program(
     path: &Path,
-    options: RuntimeOptions,
+    program: &ast::Program,
+    mut options: RuntimeOptions,
     print_ast: bool,
     enable_ir: bool,
     emit_tier0: bool,
@@ -169,19 +212,6 @@ fn run_source_file(
     telemetry: Option<TelemetryCollector>,
     memory_tracker: Option<MemoryTracker>,
 ) -> Result<()> {
-    let source =
-        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-
-    let mut tokenizer = Tokenizer::new(&source);
-    let tokens = tokenizer
-        .tokenize()
-        .map_err(|err| anyhow!("Tokenizer error: {err}"))?;
-
-    let mut parser = AstParser::new(tokens);
-    let program = parser
-        .parse()
-        .map_err(|error| map_parse_error(path, error))?;
-
     if print_ast {
         println!("{:#?}", program);
     }
@@ -268,6 +298,28 @@ fn run_vm_pipeline(
     let value = execute_vm(Arc::new(vm_program), options)?;
     emit_runtime_value(&value);
     emit_runtime_metrics(telemetry, memory_tracker)?;
+    Ok(())
+}
+
+fn run_svc_file(path: &Path, options: RuntimeOptions) -> Result<()> {
+    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let bytecode: VmBytecode =
+        bincode::deserialize(&bytes).map_err(|err| anyhow!("svc decode error: {err}"))?;
+    let value = execute_vm(Arc::new(bytecode), options)?;
+    emit_runtime_value(&value);
+    Ok(())
+}
+
+fn compile_svs_to_svc(input: &Path, output: &Path) -> Result<()> {
+    let program = parse_source(input)?;
+    let bytecode =
+        compiler::compile_program(&program).map_err(|err| anyhow!("compiler error: {err}"))?;
+    let vm_program =
+        VmBytecode::decode(&bytecode[..]).map_err(|err| anyhow!("bytecode decode error: {err}"))?;
+    let encoded =
+        bincode::serialize(&vm_program).map_err(|err| anyhow!("svc encode error: {err}"))?;
+    fs::write(output, encoded)
+        .with_context(|| format!("failed to write {}", output.display()))?;
     Ok(())
 }
 
@@ -362,6 +414,19 @@ fn emit_runtime_metrics(
     }
 
     Ok(())
+}
+
+fn parse_source(path: &Path) -> Result<ast::Program> {
+    let source =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut tokenizer = Tokenizer::new(&source);
+    let tokens = tokenizer
+        .tokenize()
+        .map_err(|err| anyhow!("Tokenizer error: {err}"))?;
+    let mut parser = AstParser::new(tokens);
+    parser
+        .parse()
+        .map_err(|error| map_parse_error(path, error))
 }
 
 fn map_parse_error(path: &Path, error: ParseError) -> anyhow::Error {
