@@ -13,8 +13,35 @@
 
 use crate::symbol::Symbol;
 use crate::tokenizer::Position;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::collections::HashMap;
 use std::fmt;
+
+pub type NodeId = u32;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Span {
+    pub start: Position,
+    pub end: Position,
+}
+
+impl Span {
+    pub fn new(start: Position, end: Position) -> Self {
+        Self { start, end }
+    }
+}
+
+static NODE_COUNTER: AtomicU32 = AtomicU32::new(1);
+
+pub fn next_node_id() -> NodeId {
+    NODE_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeNode {
+    pub ty: Type,
+    pub span: Span,
+}
 
 /// Represents a SolvraScript type annotation
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -136,6 +163,7 @@ pub enum Expr {
     Identifier {
         name: Symbol,
         position: Position,
+        node_id: NodeId,
     },
     Binary {
         left: Box<Expr>,
@@ -229,6 +257,14 @@ pub enum Expr {
         step: Option<Box<Expr>>,
         position: Position,
     },
+    Slice {
+        object: Box<Expr>,
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        step: Option<Box<Expr>>,
+        span: Span,
+        node_id: NodeId,
+    },
     Comprehension {
         element: Box<Expr>,
         variable: Symbol,
@@ -268,6 +304,7 @@ impl Expr {
             Expr::Tuple { position, .. } => position,
             Expr::Range { position, .. } => position,
             Expr::Comprehension { position, .. } => position,
+            Expr::Slice { span, .. } => &span.start,
         }
     }
 }
@@ -315,6 +352,7 @@ pub struct MatchArm {
 pub struct Parameter {
     pub name: Symbol,
     pub param_type: Type,
+    pub type_annotation: Option<TypeNode>,
     pub default_value: Option<Expr>,
     pub position: Position,
 }
@@ -337,10 +375,12 @@ pub enum BindingKind {
 pub struct VariableDecl {
     pub name: Symbol,
     pub var_type: Type,
+    pub type_annotation: Option<TypeNode>,
     pub binding: BindingKind,
     pub is_mutable: bool,
     pub initializer: Option<Expr>,
     pub position: Position,
+    pub node_id: NodeId,
 }
 
 /// Function declarations
@@ -349,10 +389,12 @@ pub struct FunctionDecl {
     pub name: Symbol,
     pub params: Vec<Parameter>,
     pub return_type: Type,
+    pub return_type_node: Option<TypeNode>,
     pub body: Vec<Stmt>,
     pub is_async: bool,
     pub visibility: Visibility,
     pub position: Position,
+    pub node_id: NodeId,
 }
 
 /// Class declarations
@@ -489,6 +531,7 @@ pub enum Stmt {
         iterable: Expr,
         body: Box<Stmt>,
         position: Position,
+        node_id: NodeId,
     },
     ForIn {
         variable: Symbol,
