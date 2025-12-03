@@ -1,0 +1,17 @@
+//==================================================
+// File: stdx/fs/mod.svs
+// Goal: Expose filesystem helpers
+//==================================================
+
+import "./fs.svs" as fs_ops;
+
+export let open_file = fs_ops.open_file;
+export let read_file = fs_ops.read_file;
+export let write_file = fs_ops.write_file;
+export let close_file = fs_ops.close_file;
+export let fs_exists = fs_ops.fs_exists;
+export let fs_ls = fs_ops.fs_ls;
+export let path_join = fs_ops.path_join;
+export let path_home_dir = fs_ops.path_home_dir;
+
+fn main() {}

@@ -1,0 +1,13 @@
+//==================================================
+// File: stdx/os/mod.svs
+// Deterministic OS helpers (env, cwd, home)
+//==================================================
+
+import "./os.svs" as os_ops;
+
+export let env_get = os_ops.env_get;
+export let env_set = os_ops.env_set;
+export let cwd = os_ops.cwd;
+export let home = os_ops.home;
+
+fn main() {}

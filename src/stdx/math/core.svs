@@ -1,0 +1,236 @@
+//==================================================
+// File: stdx/math/core.svs
+// Goal: Core math constants, predicates, and basic operations
+//==================================================
+
+//--------------------------------------------------
+// Debug tracing
+//--------------------------------------------------
+fn __debug_trace(name, x) {
+    print("[math-call]", name, "input:", x);
+}
+
+//--------------------------------------------------
+// Constants (IEEE-754 friendly)
+//--------------------------------------------------
+export let PI = 3.141592653589793;
+export let TAU = 6.283185307179586;
+export let E = 2.718281828459045;
+export let SQRT2 = 1.4142135623730951;
+export let SQRT1_2 = 0.7071067811865476;
+export let LN2 = 0.6931471805599453;
+export let LN10 = 2.302585092994046;
+export let LOG2E = 1.4426950408889634;
+export let LOG10E = 0.4342944819032518;
+
+// Special values (parsed to preserve platform semantics)
+export let INF = parse_float("inf");
+export let NEG_INF = parse_float("-inf");
+export let NAN = parse_float("NaN");
+export let EPSILON = parse_float("2.220446049250313e-16");
+export let MAX = parse_float("1.7976931348623157e308");
+export let MIN_POSITIVE = parse_float("2.2250738585072014e-308");
+
+//--------------------------------------------------
+// Predicates
+//--------------------------------------------------
+export fn is_nan(x) {
+    __debug_trace("is_nan", x);
+    return x != x;
+}
+
+export fn is_inf(x) {
+    __debug_trace("is_inf", x);
+    return x == INF || x == NEG_INF;
+}
+
+export fn is_finite(x) {
+    __debug_trace("is_finite", x);
+    return !is_nan(x) && !is_inf(x);
+}
+
+export fn is_normal(x) {
+    __debug_trace("is_normal", x);
+    let ax = abs(x);
+    return is_finite(ax) && ax >= MIN_POSITIVE;
+}
+
+export fn is_subnormal(x) {
+    __debug_trace("is_subnormal", x);
+    let ax = abs(x);
+    return is_finite(ax) && ax < MIN_POSITIVE && x != 0;
+}
+
+export fn is_negative_zero(x) {
+    __debug_trace("is_negative_zero", x);
+    if (x != 0) {
+        return false;
+    }
+    let text = str(x);
+    if (text == "-0" || text == "-0.0") {
+        return true;
+    }
+    let inv = 1.0 / x;
+    return inv == NEG_INF;
+}
+
+//--------------------------------------------------
+// Basic operations
+//--------------------------------------------------
+export fn abs(x) {
+    __debug_trace("abs", x);
+    return legacy_math_abs(x);
+}
+
+export fn sign(x) {
+    __debug_trace("sign", x);
+    if (is_nan(x)) {
+        return NAN;
+    }
+    if (x == 0) {
+        return x;
+    }
+    if (x > 0) {
+        return 1.0;
+    }
+    return -1.0;
+}
+
+export fn min(a, b) {
+    __debug_trace("min", [a, b]);
+    if (is_nan(a) || is_nan(b)) {
+        return NAN;
+    }
+    return legacy_math_min(a, b);
+}
+
+export fn max(a, b) {
+    __debug_trace("max", [a, b]);
+    if (is_nan(a) || is_nan(b)) {
+        return NAN;
+    }
+    return legacy_math_max(a, b);
+}
+
+export fn copysign(x, y) {
+    __debug_trace("copysign", [x, y]);
+    if (is_nan(y)) {
+        return NAN;
+    }
+    let mag = abs(x);
+    if (y == 0 && is_negative_zero(y)) {
+        return -mag;
+    }
+    if (y < 0) {
+        return -mag;
+    }
+    return mag;
+}
+
+//--------------------------------------------------
+// Rounding helpers
+//--------------------------------------------------
+fn truncate_value(x) {
+    if (!is_finite(x)) {
+        return x;
+    }
+    let rem = x % 1;
+    if (rem == 0) {
+        return x;
+    }
+    return x - rem;
+}
+
+export fn trunc(x) {
+    __debug_trace("trunc", x);
+    return truncate_value(x);
+}
+
+export fn floor(x) {
+    __debug_trace("floor", x);
+    if (!is_finite(x)) {
+        return x;
+    }
+    let t = truncate_value(x);
+    if (x >= 0 || x == t) {
+        return t;
+    }
+    return t - 1;
+}
+
+export fn ceil(x) {
+    __debug_trace("ceil", x);
+    if (!is_finite(x)) {
+        return x;
+    }
+    let t = truncate_value(x);
+    if (x <= 0 || x == t) {
+        return t;
+    }
+    return t + 1;
+}
+
+export fn round(x) {
+    __debug_trace("round", x);
+    if (!is_finite(x)) {
+        return x;
+    }
+    let f = floor(x);
+    let diff = x - f;
+    if (diff < 0.5) {
+        return f;
+    }
+    if (diff > 0.5) {
+        return f + 1;
+    }
+    let is_even = ((f % 2) == 0);
+    if (is_even) {
+        return f;
+    }
+    return f + 1;
+}
+
+export fn fract(x) {
+    __debug_trace("fract", x);
+    if (!is_finite(x)) {
+        return NAN;
+    }
+    return x - truncate_value(x);
+}
+
+export fn modf(x) {
+    __debug_trace("modf", x);
+    if (!is_finite(x)) {
+        return [x, NAN];
+    }
+    let int_part = truncate_value(x);
+    let frac = x - int_part;
+    return [int_part, frac];
+}
+
+//--------------------------------------------------
+// Remainder helpers
+//--------------------------------------------------
+fn invalid_remainder(x, y) {
+    return is_nan(x) || is_nan(y) || y == 0 || is_inf(x) || is_inf(y);
+}
+
+export fn fmod(x, y) {
+    __debug_trace("fmod", [x, y]);
+    if (invalid_remainder(x, y)) {
+        return NAN;
+    }
+    return x - truncate_value(x / y) * y;
+}
+
+export fn remainder(x, y) {
+    __debug_trace("remainder", [x, y]);
+    if (invalid_remainder(x, y)) {
+        return NAN;
+    }
+    return x - round(x / y) * y;
+}
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

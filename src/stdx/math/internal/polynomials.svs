@@ -1,0 +1,14 @@
+//==================================================
+// File: stdx/math/internal/polynomials.svs
+// Goal: Polynomial helpers (Phase 3 placeholder)
+//==================================================
+
+// @TODO[math-poly]: Add minimax coefficients for transcendental approximations.
+
+fn eval_placeholder() {
+    error("polynomial helpers not implemented");
+}
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

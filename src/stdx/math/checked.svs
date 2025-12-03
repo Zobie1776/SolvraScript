@@ -1,0 +1,35 @@
+//==================================================
+// File: stdx/math/checked.svs
+// Goal: Checked math API stubs (Phase 4 scaffolding)
+//==================================================
+
+// Placeholder status enum-like values
+export let STATUS_OK = "ok";
+export let STATUS_OVERFLOW = "overflow";
+export let STATUS_INVALID = "invalid";
+
+// Wrapper result structure
+export fn MathResult(value, status) {
+    return {
+        value: value,
+        status: status,
+    };
+}
+
+export fn sqrt(x) {
+    return MathResult(null, STATUS_INVALID);
+}
+
+export fn log(x) {
+    return MathResult(null, STATUS_INVALID);
+}
+
+export fn pow(x, y) {
+    return MathResult(null, STATUS_INVALID);
+}
+
+// @TODO[math-checked]: Populate with real checked arithmetic once kernels land.
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

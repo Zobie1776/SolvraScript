@@ -1,0 +1,120 @@
+/// SolvraScript iterator helpers inspired by Rust’s Iterator.
+/// Provides deterministic list traversal plus lightweight adapters.
+///
+/// Examples:
+/// ```
+/// let items = [1, 2, 3];
+/// let iter = iter.iter_from(items);
+/// while (iter.iter_has_next(iter)) {
+///     let next = iter.iter_next(iter);
+/// }
+/// ```
+/// @meta:module(name="iter")
+/// @meta:category("std")
+/// @meta:stability("stable")
+/// @meta:since("0.1.0")
+/// @meta:deterministic(true)
+
+import std.core.option as option;
+
+fn make_iterator(items, index = 0) {
+    return {
+        items: items,
+        index: index,
+    };
+}
+
+fn clone_iterator(iterator) {
+    return make_iterator(iterator.items, iterator.index);
+}
+
+fn ensure_array(source) {
+    if (source == null) {
+        return [];
+    }
+    if (type(source) == "array") {
+        return source;
+    }
+    return [source];
+}
+
+/// Creates an iterator from an array-like collection.
+export fn iter_from(collection) {
+    return make_iterator(ensure_array(collection), 0);
+}
+
+/// Returns true when additional items remain in the iterator.
+export fn iter_has_next(iterator) {
+    let length = len(iterator.items);
+    return iterator.index < length;
+}
+
+/// Advances the iterator and returns an Option value.
+export fn iter_next(iterator) {
+    if (!iter_has_next(iterator)) {
+        return option.None();
+    }
+    let value = iterator.items[iterator.index];
+    iterator.index = iterator.index + 1;
+    return option.Some(value);
+}
+
+fn map_materialize(iterator, transform) {
+    let copy = clone_iterator(iterator);
+    let results = [];
+    while (iter_has_next(copy)) {
+        let next = iter_next(copy);
+        if (option.is_some(next)) {
+            let value = option.unwrap_or(next, null);
+            results = push(results, transform(value));
+        }
+    }
+    return results;
+}
+
+fn filter_materialize(iterator, predicate) {
+    let copy = clone_iterator(iterator);
+    let results = [];
+    while (iter_has_next(copy)) {
+        let next = iter_next(copy);
+        if (option.is_some(next)) {
+            let value = option.unwrap_or(next, null);
+            if (predicate(value)) {
+                results = push(results, value);
+            }
+        }
+    }
+    return results;
+}
+
+/// Applies `transform` to every remaining element and returns a new iterator.
+export fn map(iterator, transform) {
+    return iter_from(map_materialize(iterator, transform));
+}
+
+/// Returns a new iterator containing only elements that satisfy `predicate`.
+export fn filter(iterator, predicate) {
+    return iter_from(filter_materialize(iterator, predicate));
+}
+
+/// Builds a numeric range for compatibility with legacy scripts.
+export fn range(start, end, step = 1) {
+    if (step == 0) {
+        error("core.iter.range step cannot be zero");
+    }
+    let mut result = [];
+    if (step > 0) {
+        let mut current = start;
+        while (current < end) {
+            result = push(result, current);
+            current = current + step;
+        }
+        return result;
+    }
+    let mut current = start;
+    while (current > end) {
+        result = push(result, current);
+        current = current + step;
+    }
+    return result;
+}

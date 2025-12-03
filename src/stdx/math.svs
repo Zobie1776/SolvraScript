@@ -1,0 +1,99 @@
+//==================================================
+// File: stdx/math.svs
+// Goal: Public facade for stdx math (phase 1)
+//==================================================
+
+import "./math/core.svs" as core;
+import "./math/trig.svs" as trig;
+import "./math/transcendental.svs" as trans;
+import "./math/random.svs" as rnd;
+// Future scaffolding
+import "./math/special.svs" as special;
+import "./math/checked.svs" as checked;
+import "./math/fast.svs" as fast;
+import "./math/simd.svs" as simd;
+
+// Constants
+export let PI = core.PI;
+export let TAU = core.TAU;
+export let E = core.E;
+export let SQRT2 = core.SQRT2;
+export let SQRT1_2 = core.SQRT1_2;
+export let LN2 = core.LN2;
+export let LN10 = core.LN10;
+export let LOG2E = core.LOG2E;
+export let LOG10E = core.LOG10E;
+export let INF = core.INF;
+export let NEG_INF = core.NEG_INF;
+export let NAN = core.NAN;
+export let EPSILON = core.EPSILON;
+export let MAX = core.MAX;
+export let MIN_POSITIVE = core.MIN_POSITIVE;
+
+// Predicates
+export let is_nan = core.is_nan;
+export let is_inf = core.is_inf;
+export let is_finite = core.is_finite;
+export let is_normal = core.is_normal;
+export let is_subnormal = core.is_subnormal;
+export let is_negative_zero = core.is_negative_zero;
+
+// Basic ops
+export let abs = core.abs;
+export let sign = core.sign;
+export let min = core.min;
+export let max = core.max;
+export let copysign = core.copysign;
+
+// Rounding
+export let floor = core.floor;
+export let ceil = core.ceil;
+export let round = core.round;
+export let trunc = core.trunc;
+export let fract = core.fract;
+export let modf = core.modf;
+export let fmod = core.fmod;
+export let remainder = core.remainder;
+
+// Power/root
+export let sqrt = trans.sqrt;
+export let pow = trans.pow;
+export let hypot = trans.hypot;
+
+// Trigonometry
+export let sin = trig.sin;
+export let cos = trig.cos;
+export let tan = trig.tan;
+export let asin = trig.asin;
+export let acos = trig.acos;
+export let atan = trig.atan;
+export let atan2 = trig.atan2;
+export let radians = trig.radians;
+export let degrees = trig.degrees;
+
+// Exponential & log
+export let exp = trans.exp;
+export let exp2 = trans.exp2;
+export let expm1 = trans.expm1;
+export let log = trans.log;
+export let log10 = trans.log10;
+export let log2 = trans.log2;
+export let log1p = trans.log1p;
+
+// Random
+export let random_seed = rnd.random_seed;
+export let random = rnd.random;
+export let random_int = rnd.random_int;
+export let random_int_range = rnd.random_int_range;
+
+// Stubs (exported for completeness)
+export let special = special;
+export let checked = checked;
+export let fast = fast;
+export let simd = simd;
+
+fn main() {}
+
+//==================================================
+// End of file
+//==================================================

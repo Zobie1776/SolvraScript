@@ -1,0 +1,63 @@
+//=====================================================
+// File: math_core_test.svs
+// Goal: Smoke tests for stdx.math core helpers
+//=====================================================
+
+import "../src/stdx/math.svs" as math;
+import "../src/stdx/core.svs" as core;
+import "../src/stdx/string.svs" as string;
+import "../src/stdx/path.svs" as path;
+import "../src/stdx/datetime.svs" as dt;
+import "../src/stdx/random.svs" as rnd;
+import "../src/stdx/fs.svs" as fs;
+
+let TOL = 0.000000000001;
+
+fn assert_close(a, b, tol) {
+    return math.abs(a - b) <= tol;
+}
+
+fn test_constants() {
+    return assert_close(math.PI * 2.0, math.TAU, TOL)
+        && math.is_nan(math.NAN)
+        && math.is_inf(math.INF)
+        && math.is_inf(math.NEG_INF);
+}
+
+fn test_predicates() {
+    let nz = -0.0;
+    return math.is_negative_zero(nz)
+        && math.is_finite(1.0)
+        && !math.is_finite(math.INF)
+        && math.is_normal(1.0)
+        && math.is_subnormal(math.MIN_POSITIVE / 2);
+}
+
+fn test_rounding() {
+    let f1 = math.floor(3.7) == 3;
+    let f2 = math.floor(-1.2) == -2;
+    let c1 = math.ceil(3.1) == 4;
+    let c2 = math.ceil(-1.2) == -1;
+    let r1 = math.round(2.5) == 2;
+    let r2 = math.round(3.5) == 4;
+    let t1 = math.trunc(-3.9) == -3.0;
+    let fr = assert_close(math.fract(1.75), 0.75, TOL);
+    let parts = math.modf(1.75);
+    let m1 = parts[0] == 1.0;
+    let m2 = assert_close(parts[1], 0.75, TOL);
+    return f1 && f2 && c1 && c2 && r1 && r2 && t1 && fr && m1 && m2;
+}
+
+fn test_remainders() {
+    let f = assert_close(math.fmod(5.5, 2.0), 1.5, TOL);
+    let r = assert_close(math.remainder(5.5, 2.0), 1.5, TOL);
+    return f && r;
+}
+
+fn main() {
+    return test_constants() && test_predicates() && test_rounding() && test_remainders();
+}
+
+//=====================================================
+// End of file
+//=====================================================

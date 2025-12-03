@@ -1,0 +1,6 @@
+// stdx system helpers (type, env, bool)
+
+export fn bool(value) { return legacy_sys_bool(value); }
+export fn type(value) { return legacy_sys_type(value); }
+export fn env_get(key) { return legacy_sys_env_get(key); }
+export fn env_set(key, value) { return legacy_sys_env_set(key, value); }

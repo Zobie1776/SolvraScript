@@ -1,0 +1,45 @@
+//==================================================
+// File: core_test.svs
+// Goal: Validate core stdlib helpers (option, result, map, iter)
+//==================================================
+
+import "../src/stdx/math.svs" as math;
+import "../src/stdx/core.svs" as core;
+import "../src/stdx/string.svs" as string;
+import "../src/stdx/path.svs" as path;
+import "../src/stdx/datetime.svs" as dt;
+import "../src/stdx/random.svs" as rnd;
+import "../src/stdx/fs.svs" as fs;
+
+let option = core.option;
+let result = core.result;
+let core_map = core.map;
+
+fn double(value) {
+    return value * 2;
+}
+
+fn run() {
+    let base = option.Some(5);
+    let doubled = option.map(base, double);
+    let wrapped = option.unwrap_or(doubled, 0);
+    let ok_result = result.Ok(wrapped);
+    let resolved = result.unwrap_or(ok_result, 0);
+
+    let store = core_map.new();
+    core_map.set(store, "value", resolved);
+    let stored = core_map.get(store, "value");
+    let before = core_map.len(store);
+    core_map.remove(store, "value");
+
+    let after = core_map.len(store);
+    let exists_after = core_map.contains_key(store, "value");
+
+    return stored == 10 && resolved == 10 && before == 1 && after == 0 && !exists_after;
+}
+
+run();
+
+//==================================================
+// End of file
+//==================================================

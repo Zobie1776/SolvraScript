@@ -1,0 +1,72 @@
+fn value_is_data(value) {
+    return typeof(value) != "function";
+}
+
+fn data_keys(map) {
+    if (map == null) {
+        return [];
+    }
+    let list = keys(map);
+    if (list == null) {
+        return [];
+    }
+    return list;
+}
+
+export fn new() {
+    return {};
+}
+
+export fn get(map, key) {
+    if (map == null) {
+        return null;
+    }
+    return map[key];
+}
+
+export fn set(map, key, value) {
+    if (map == null) {
+        let created = {};
+        created[key] = value;
+        return created;
+    }
+    map[key] = value;
+    return map;
+}
+
+export fn remove(map, key) {
+    if (map == null) {
+        return null;
+    }
+    map[key] = null;
+    return map;
+}
+
+export fn contains_key(map, key) {
+    if (map == null) {
+        return false;
+    }
+    let key_list = data_keys(map);
+    prt("contains key list type: " + type(key_list));
+    for current in key_list {
+        if (current == key && value_is_data(map[current])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export fn len(map) {
+    if (map == null) {
+        return 0;
+    }
+    let key_list = data_keys(map);
+    prt("len key list type: " + type(key_list));
+    let count = 0;
+    for current in key_list {
+        if (value_is_data(map[current])) {
+            count = count + 1;
+        }
+    }
+    return count;
+}

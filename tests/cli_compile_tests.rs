@@ -7,12 +7,11 @@
 //=====================================================
 
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
 
 use bincode;
-use solvra_core::vm::bytecode::VmBytecode;
 use solvra_core::Value as RuntimeValue;
+use solvra_core::vm::bytecode::VmBytecode;
 use solvrascript::vm::runtime::{RuntimeOptions, run_bytecode};
 use tempfile::tempdir;
 
@@ -22,11 +21,7 @@ fn cli_compiles_and_runs_svc() {
     let source_path = dir.path().join("main.svs");
     let output_path = dir.path().join("main.svc");
 
-    fs::write(
-        &source_path,
-        "function main() { return 2 + 3; }",
-    )
-    .expect("write source");
+    fs::write(&source_path, "function main() { return 2 + 3; }").expect("write source");
 
     let status = Command::new(env!("CARGO_BIN_EXE_solvrascript"))
         .args([

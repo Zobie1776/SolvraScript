@@ -1,0 +1,20 @@
+//==================================================
+// File: stdx/net/mod.svs
+// Goal: Alias networking helpers
+//==================================================
+
+import "../networking/sock.svs" as sock;
+
+export fn dns_resolve(hostname) { return sock.dns_resolve(hostname); }
+export fn tcp_connect(host, port, timeout_ms) { return sock.tcp_connect(host, port, timeout_ms); }
+export fn tcp_send(socket, data) { return sock.tcp_send(socket, data); }
+export fn tcp_recv(socket, max_bytes, timeout_ms) { return sock.tcp_recv(socket, max_bytes, timeout_ms); }
+export fn tcp_close(socket) { return sock.tcp_close(socket); }
+export fn tcp_listen(port, backlog) { return sock.tcp_listen(port, backlog); }
+export fn tcp_accept(server, timeout_ms) { return sock.tcp_accept(server, timeout_ms); }
+export fn udp_bind(port) { return sock.udp_bind(port); }
+export fn udp_send_to(socket, data, host, port) { return sock.udp_send_to(socket, data, host, port); }
+export fn udp_recv_from(socket, max_bytes, timeout_ms) { return sock.udp_recv_from(socket, max_bytes, timeout_ms); }
+export fn is_ip_address(host) { return sock.is_ip_address(host); }
+
+fn main() {}

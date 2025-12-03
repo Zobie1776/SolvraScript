@@ -59,8 +59,32 @@
 - `import "lib/math.svs";` loads a script relative to the importing file or search paths.
 - `import { append, length } from <vector>;` pulls named exports directly into scope.
 - `import "tools/format.svs" as fmt;` binds the module namespace to `fmt` for dot access.
+- `std.core.prelude` is auto-imported in every module.
 
-Modules expose all globals they define beyond the built-in set. See `docs/modules.md` for loader details, standard module inventory, and packaging guidance.
+Modules must live under the `std/` or `stdx/` directories (legacy `stdlib/`/`lib/` folders are deprecated shims). Dotted imports (`import std.io`, `import stdx.ai.tensor`) mirror the directory tree and every module exports a `mod.svs` that binds submodules.
+
+Refer to `docs/stdlib_migration.md` for the migration playbook, path updates, and compatibility shims.
+
+### Slices
+
+SolvraScript slices (`array[start:end:step]`) support optional start, end, and step parameters and share the VM normalization pipeline:
+
+```svs
+let a = [0, 1, 2, 3, 4];
+let sub = a[1:4];        // [1,2,3]
+let tail = a[3:];        // [3,4]
+let head = a[:2];        // [0,1]
+let stride = a[::2];     // [0,2,4]
+let reverse = a[::-1];   // [4,3,2,1,0]
+let neg = a[-3:-1];      // [2,3]
+let unicode = "héllo"[::2]; // safe Unicode slicing
+```
+
+- Negative indices count from the end; normalization clamps to `[0, len]`.
+- Zero step raises the runtime error `"slice step cannot be zero"`.
+- Negative steps iterate backward; reverse slices are fully supported.
+- Sliced targets must be arrays or strings—objects/JSON trigger a runtime type error. Use `core_index` or `std.serialization` helpers for JSON paths.
+- Slicing a string respects Unicode scalar boundaries thanks to the VM’s safe string slicing semantics.
 
 ### Syntax Rules
 

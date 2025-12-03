@@ -1,0 +1,49 @@
+//=====================================================
+// File: math_random_test.svs
+// Goal: Determinism checks for stdx.math random helpers
+//=====================================================
+
+import "../src/stdx/math.svs" as math;
+import "../src/stdx/core.svs" as core;
+import "../src/stdx/string.svs" as string;
+import "../src/stdx/path.svs" as path;
+import "../src/stdx/datetime.svs" as dt;
+import "../src/stdx/random.svs" as rnd;
+import "../src/stdx/fs.svs" as fs;
+
+fn test_random_determinism() {
+    math.random_seed(42);
+    let r1 = math.random();
+    let r2 = math.random();
+
+    math.random_seed(42);
+    let r3 = math.random();
+    let r4 = math.random();
+
+    return r1 == r3 && r2 == r4;
+}
+
+fn test_random_ranges() {
+    math.random_seed(7);
+    let f = math.random();
+    if (f < 0 || f >= 1) {
+        return false;
+    }
+    let i = math.random_int(5);
+    if (i < 0 || i > 5) {
+        return false;
+    }
+    let j = math.random_int_range(3, 7);
+    if (j < 3 || j > 7) {
+        return false;
+    }
+    return true;
+}
+
+fn main() {
+    return test_random_determinism() && test_random_ranges();
+}
+
+//=====================================================
+// End of file
+//=====================================================

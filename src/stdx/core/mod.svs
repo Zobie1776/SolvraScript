@@ -1,0 +1,24 @@
+//==================================================
+// File: stdx/core/mod.svs
+// Goal: Re-export core primitives and helpers
+//==================================================
+
+import "./string.svs" as string;
+import "./vector.svs" as vector;
+import "./option.svs" as option;
+import "./result.svs" as result;
+import "./vec.svs" as vec;
+import "./map.svs" as map;
+import "./iter.svs" as iter;
+import "./prelude.svs" as prelude;
+
+export string;
+export vector;
+export option;
+export result;
+export vec;
+export map;
+export iter;
+export prelude;
+
+fn main() {}

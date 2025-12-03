@@ -1,0 +1,2 @@
+// Deprecated: use std.core.string
+import std.core.string;

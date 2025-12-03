@@ -1,0 +1,14 @@
+//==================================================
+// File: stdx/path/mod.svs
+// Goal: Expose path utilities
+//==================================================
+
+import "../path.svs" as path_ops;
+
+export let split = path_ops.split;
+export let normalize = path_ops.normalize;
+export let join = path_ops.join;
+export let dirname = path_ops.dirname;
+export let filename = path_ops.filename;
+
+fn main() {}

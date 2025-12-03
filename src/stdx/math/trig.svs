@@ -1,0 +1,122 @@
+//==================================================
+// File: stdx/math/trig.svs
+// Goal: Trigonometric helpers (phase 1, libm-backed)
+//==================================================
+
+fn __debug_trace(name, x) {
+    print("[math-call]", name, "input:", x);
+}
+
+import "./core.svs" as core;
+
+fn reduce_trig_range(x) {
+    if (core.is_nan(x) || core.is_inf(x)) {
+        return x;
+    }
+    let cycles = core.round(x / core.TAU);
+    return x - cycles * core.TAU;
+}
+
+export fn sin(x) {
+    __debug_trace("sin", x);
+    if (core.is_nan(x) || core.is_inf(x)) {
+        return core.NAN;
+    }
+    return legacy_math_sin(reduce_trig_range(x));
+}
+
+export fn cos(x) {
+    __debug_trace("cos", x);
+    if (core.is_nan(x) || core.is_inf(x)) {
+        return core.NAN;
+    }
+    return legacy_math_cos(reduce_trig_range(x));
+}
+
+export fn tan(x) {
+    __debug_trace("tan", x);
+    let c = cos(x);
+    let s = sin(x);
+    if (c == 0) {
+        return core.NAN;
+    }
+    return s / c;
+}
+
+export fn asin(x) {
+    __debug_trace("asin", x);
+    if (x < -1 || x > 1 || core.is_nan(x)) {
+        return core.NAN;
+    }
+    // Newton iteration on sin(y) = x
+    let mut y = x;
+    let mut iter = 0;
+    while (iter < 20) {
+        let delta = (legacy_math_sin(y) - x) / core.max(legacy_math_cos(y), core.MIN_POSITIVE);
+        y = y - delta;
+        if (core.abs(delta) < 0.000000000001) {
+            break;
+        }
+        iter = iter + 1;
+    }
+    return y;
+}
+
+export fn acos(x) {
+    __debug_trace("acos", x);
+    let a = asin(x);
+    if (core.is_nan(a)) {
+        return core.NAN;
+    }
+    return core.PI / 2 - a;
+}
+
+export fn atan(x) {
+    __debug_trace("atan", x);
+    if (core.is_nan(x)) {
+        return core.NAN;
+    }
+    // Use asin identity for stable approximation
+    let denom = legacy_math_sqrt(1 + x * x);
+    if (denom == 0) {
+        return core.NAN;
+    }
+    return asin(x / denom);
+}
+
+export fn atan2(y, x) {
+    __debug_trace("atan2", [y, x]);
+    if (core.is_nan(x) || core.is_nan(y)) {
+        return core.NAN;
+    }
+    if (x > 0) {
+        return atan(y / x);
+    }
+    if (x < 0 && y >= 0) {
+        return atan(y / x) + core.PI;
+    }
+    if (x < 0 && y < 0) {
+        return atan(y / x) - core.PI;
+    }
+    if (x == 0 && y > 0) {
+        return core.PI / 2;
+    }
+    if (x == 0 && y < 0) {
+        return -core.PI / 2;
+    }
+    return 0.0;
+}
+
+export fn radians(degrees) {
+    __debug_trace("radians", degrees);
+    return degrees * core.PI / 180.0;
+}
+
+export fn degrees(radians) {
+    __debug_trace("degrees", radians);
+    return radians * 180.0 / core.PI;
+}
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

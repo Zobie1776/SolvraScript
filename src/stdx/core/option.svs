@@ -1,0 +1,68 @@
+/// SolvraScript Option module providing deterministic helpers inspired by Rust’s Option type.
+/// 
+/// Examples:
+/// ```
+/// let value = option.Some(42);
+/// if option.is_some(value) {
+///     let answer = option.unwrap_or(value, 0);
+/// }
+/// ```
+/// @meta:module(name="option")
+/// @meta:category("std")
+/// @meta:stability("stable")
+/// @meta:since("0.1.0")
+/// @meta:deterministic(true)
+
+fn make_some(value) {
+    return { tag: "Some", value: value };
+}
+
+fn make_none() {
+    return { tag: "None", value: null };
+}
+
+/// Creates an Option that contains a value.
+export fn Some(value) {
+    return make_some(value);
+}
+
+/// Creates the None variant of Option.
+export fn None() {
+    return make_none();
+}
+
+/// Alias of [`Some`] kept for backwards compatibility.
+export fn some(value) {
+    return make_some(value);
+}
+
+/// Alias of [`None`] kept for backwards compatibility.
+export fn none() {
+    return make_none();
+}
+
+/// Returns true when the option contains a value.
+export fn is_some(opt) {
+    return opt != null && opt.tag == "Some";
+}
+
+/// Returns true when the option is None or null.
+export fn is_none(opt) {
+    return opt == null || opt.tag == "None";
+}
+
+/// Extracts the inner value or returns the provided fallback.
+export fn unwrap_or(opt, fallback) {
+    if (is_some(opt)) {
+        return opt.value;
+    }
+    return fallback;
+}
+
+/// Applies `transform` to the contained value when present.
+export fn map(opt, transform) {
+    if (is_some(opt)) {
+        return make_some(transform(opt.value));
+    }
+    return make_none();
+}

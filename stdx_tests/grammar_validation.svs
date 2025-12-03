@@ -1,0 +1,128 @@
+//==================================================
+// File: grammar_validation.svs
+// Author: ZobieLabs
+// License: Duality Public License (DPL v1.0)
+// Goal: Regression coverage for SolvraScript grammar
+// Objective: Exercise every statement, expression, and pattern form
+//==================================================
+
+//==================================================
+// Section 1.0 - Imports & Globals
+//==================================================
+import "../src/stdx/math.svs" as math;
+import "../src/stdx/core.svs" as core;
+import "../src/stdx/string.svs" as string;
+import "../src/stdx/path.svs" as path;
+import "../src/stdx/datetime.svs" as dt;
+import "../src/stdx/random.svs" as rnd;
+import "../src/stdx/fs.svs" as fs;
+import { render, widget } from "modules/ui.svs";
+import toolkit as tk;
+
+let vector = core.vector;
+
+let mut counter: int = 0;
+const STATUS: string = "ready";
+let message = "counter status";
+
+export let VERSION: string = "1.0.0";
+
+//==================================================
+// Section 2.0 - Functions & Control Flow
+//==================================================
+export fn combine(a: int, b: int = 1) -> int {
+    let mut total = a + b;
+    for item in vector {
+        total = total + item;
+    }
+    while total < 20 {
+        total = total + 1;
+        if total % 2 == 0 {
+            continue;
+        } else if total > 25 {
+            break;
+        } else {
+            total = total + 3;
+        }
+    }
+    return total;
+}
+
+fn reduce_values(data: [int]) -> int {
+    let mut acc = 0;
+    {
+        let acc = acc + 1; // shadowing inside block
+        panic("shadowed scope reached: " + acc);
+    }
+    for entry in data {
+        acc = acc + entry;
+    }
+    return acc;
+}
+
+async fn loader(path: string) {
+    try {
+        let payload = await tk::fetch(path);
+        render(payload);
+    } catch (string) error {
+        log_error(error);
+    } catch handler {
+        handler(message);
+    } finally {
+        cleanup();
+    }
+}
+
+//==================================================
+// Section 3.0 - Expressions & Patterns
+//==================================================
+let list = [1, 2, 3, 4];
+let grouped = (1 + 2) * 3;
+let flag: bool = true;
+let fallback = null;
+let inverted = !flag;
+let config = {
+    host: "localhost",
+    port: 9100,
+    "env": "dev",
+    `message`: message,
+};
+config.host = "solvra.local";
+
+let helper = {
+    greet: lambda |self| -> `Welcome ${self.host}`,
+};
+let greeting = helper.greet();
+
+let classifier = lambda |value| -> match value {
+{ kind: "ok", payload } -> payload,
+[head, tail] if head > 0 -> tail,
+"empty" -> STATUS,
+_ -> "unknown",
+};
+
+let access = vector.push(list[0]);
+let alias = tk::apply(lambda |_item| -> `processed ${message}`);
+
+let decision = if counter > 0 then classifier(counter) else "cold start";
+let gate = (counter > 0) || flag;
+let assigned = message = decision + STATUS;
+
+//==================================================
+// Section 4.0 - Final Guards
+//==================================================
+let evaluation = match config {
+{ host: "localhost", port } -> port,
+_ -> 0,
+};
+
+return evaluation;
+
+//--------------------------------------------------
+// End comments: Validates SolvraScript grammar coverage via executable script.
+// @ZNOTE: Keep in sync with docs/specification/solvrascript_grammar.bnf updates.
+//--------------------------------------------------
+
+//==================================================
+// End of file
+//==================================================

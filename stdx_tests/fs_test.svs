@@ -1,0 +1,39 @@
+//==================================================
+// File: fs_test.svs
+// Goal: Exercise stdx fs module through basic filesystem calls
+//==================================================
+
+import "../src/stdx/math.svs" as math;
+import "../src/stdx/core.svs" as core;
+import "../src/stdx/string.svs" as string;
+import "../src/stdx/path.svs" as path;
+import "../src/stdx/datetime.svs" as dt;
+import "../src/stdx/random.svs" as rnd;
+import "../src/stdx/fs.svs" as fs;
+
+const SAMPLE_PATH = "stdx_tests/fixtures/fs_sample.txt";
+
+fn main() {
+    let raw = fs.read_file(SAMPLE_PATH);
+    let exists = fs.fs_exists(SAMPLE_PATH);
+
+    let joined = fs.path_join("stdx_tests", "fixtures/fs_sample.txt");
+    let joined_exists = fs.fs_exists(joined);
+
+    let handle = fs.open_file(SAMPLE_PATH, "r");
+    let via_handle = fs.read_file(handle);
+    fs.close_file(handle);
+
+    let home = fs.path_home_dir();
+
+    let length = string.len(raw);
+    let home_is_string = type(home) == "string";
+
+    return exists && joined_exists && raw == via_handle && length > 0 && home_is_string;
+}
+
+main();
+
+//==================================================
+// End of file
+//==================================================

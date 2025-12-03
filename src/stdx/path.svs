@@ -1,0 +1,218 @@
+//==============================================
+// File: stdx/path.svs
+// Deterministic, VM-friendly path utilities (mirrors std/path.svs)
+//==============================================
+
+fn string_length(value) {
+    if (value == null) {
+        return 0;
+    }
+    return len(value);
+}
+
+fn slice_text(value, start, end) {
+    if (value == null) {
+        return "";
+    }
+    let length = string_length(value);
+    let begin = start;
+    if (begin < 0) {
+        begin = 0;
+    }
+    if (begin > length) {
+        begin = length;
+    }
+    let finish = end;
+    if (finish < begin) {
+        finish = begin;
+    }
+    if (finish > length) {
+        finish = length;
+    }
+    let span = finish - begin;
+    if (span <= 0) {
+        return "";
+    }
+    return value[begin:finish];
+}
+
+fn is_separator(ch) {
+    return string_length(ch) == 1 && ch == "/";
+}
+
+fn trim_last(parts) {
+    let count = len(parts);
+    if (count == 0) {
+        return [];
+    }
+    let result = [];
+    let index = 0;
+    let limit = count - 1;
+    while (index < limit) {
+        result = push(result, parts[index]);
+        index = index + 1;
+    }
+    return result;
+}
+
+fn push_segment(stack, part) {
+    if (part == null || part == "" || part == ".") {
+        return stack;
+    }
+    if (part == "..") {
+        let size = len(stack);
+        if (size > 0) {
+            let tail = stack[size - 1];
+            if (tail != "..") {
+                return trim_last(stack);
+            }
+        }
+        return push(stack, "..");
+    }
+    return push(stack, part);
+}
+
+fn join_with_slash(parts) {
+    let count = len(parts);
+    if (count == 0) {
+        return "";
+    }
+    let index = 1;
+    let current = parts[0];
+    while (index < count) {
+        current = current + "/" + parts[index];
+        index = index + 1;
+    }
+    return current;
+}
+
+export fn split(path) {
+    if (path == null) {
+        return [];
+    }
+    let total = string_length(path);
+    if (total == 0) {
+        return [];
+    }
+    let parts = [];
+    let current = "";
+    let index = 0;
+    while (index < total) {
+        let ch = slice_text(path, index, index + 1);
+        if (is_separator(ch)) {
+            if (string_length(current) > 0) {
+                parts = push(parts, current);
+                current = "";
+            }
+        } else {
+            current = current + ch;
+        }
+        index = index + 1;
+    }
+    if (string_length(current) > 0) {
+        parts = push(parts, current);
+    }
+    return parts;
+}
+
+fn normalize_stack(parts, absolute) {
+    let count = len(parts);
+    let stack = [];
+    let index = 0;
+    while (index < count) {
+        let part = parts[index];
+        if (part == ".." && len(stack) == 0 && absolute) {
+            index = index + 1;
+            continue;
+        }
+        stack = push_segment(stack, part);
+        index = index + 1;
+    }
+    return stack;
+}
+
+export fn normalize(path) {
+    let input = path;
+    if (input == null) {
+        input = "";
+    }
+    let absolute = string_length(input) > 0 && is_separator(slice_text(input, 0, 1));
+    let parts = split(input);
+    let stack = normalize_stack(parts, absolute);
+    let joined = join_with_slash(stack);
+    if (absolute) {
+        if (string_length(joined) == 0) {
+            return "/";
+        }
+        return "/" + joined;
+    }
+    if (string_length(joined) == 0) {
+        return ".";
+    }
+    return joined;
+}
+
+export fn join(left, right) {
+    return legacy_fs_path_join(left, right);
+}
+
+fn find_last_non_separator(text) {
+    let length = string_length(text);
+    if (length == 0) {
+        return -1;
+    }
+    let index = length - 1;
+    while (index >= 0) {
+        if (!is_separator(slice_text(text, index, index + 1))) {
+            return index;
+        }
+        index = index - 1;
+    }
+    return -1;
+}
+
+export fn dirname(path) {
+    let normalized = normalize(path);
+    if (normalized == "") {
+        return ".";
+    }
+    if (normalized == "/") {
+        return "/";
+    }
+    let last_index = find_last_non_separator(normalized);
+    if (last_index < 0) {
+        return ".";
+    }
+    let index = last_index;
+    while (index >= 0 && !is_separator(slice_text(normalized, index, index + 1))) {
+        index = index - 1;
+    }
+    if (index < 0) {
+        return ".";
+    }
+    if (index == 0) {
+        return "/";
+    }
+    return slice_text(normalized, 0, index);
+}
+
+export fn filename(path) {
+    let normalized = normalize(path);
+    if (normalized == "" || normalized == "/") {
+        return "";
+    }
+    let last_index = find_last_non_separator(normalized);
+    if (last_index < 0) {
+        return "";
+    }
+    let end = last_index + 1;
+    let index = last_index;
+    while (index >= 0 && !is_separator(slice_text(normalized, index, index + 1))) {
+        index = index - 1;
+    }
+    return slice_text(normalized, index + 1, end);
+}
+
+//==============================================
+// End of file
+//==============================================

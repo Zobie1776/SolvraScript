@@ -1,0 +1,17 @@
+//==================================================
+// File: stdx/game/mod.svs
+// Goal: Expose game helpers (ECS)
+//==================================================
+
+import "./ecs.svs" as ecs;
+
+export fn create_world() { return ecs.create_world(); }
+export fn create_entity(world) { return ecs.create_entity(world); }
+export fn destroy_entity(world, entity) { return ecs.destroy_entity(world, entity); }
+export fn add_component(world, entity, type, data) { return ecs.add_component(world, entity, type, data); }
+export fn get_component(world, entity, type) { return ecs.get_component(world, entity, type); }
+export fn remove_component(world, entity, type) { return ecs.remove_component(world, entity, type); }
+export fn has_component(world, entity, type) { return ecs.has_component(world, entity, type); }
+export fn query(world, components) { return ecs.query(world, components); }
+export fn register_system(world, name, components, fn) { return ecs.register_system(world, name, components, fn); }
+export fn run_systems(world, delta_ms) { return ecs.run_systems(world, delta_ms); }

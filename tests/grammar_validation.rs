@@ -97,7 +97,10 @@ fn grammar_suite_covers_language_surface() {
 }
 
 fn parse_fixture() -> ast::Program {
-    let source = include_str!("grammar_validation.svs");
+    let source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/stdx_tests/grammar_validation.svs"
+    ));
     let mut tokenizer = tokenizer::Tokenizer::new(source);
     let tokens = tokenizer
         .tokenize()
@@ -247,6 +250,7 @@ fn visit_export_item(item: &ast::ExportItem, coverage: &mut Coverage) {
             }
         }
         ast::ExportItem::Module(_) => {}
+        ast::ExportItem::Symbol { .. } => {}
         other => panic!("unexpected export item derived from grammar fixture: {other:?}"),
     }
 }
@@ -317,6 +321,25 @@ fn visit_expr(expr: &Expr, coverage: &mut Coverage) {
             coverage.index_expr = true;
             visit_expr(object, coverage);
             visit_expr(index, coverage);
+        }
+        Expr::Slice {
+            object,
+            start,
+            end,
+            step,
+            ..
+        } => {
+            coverage.index_expr = true;
+            visit_expr(object, coverage);
+            if let Some(expr) = start {
+                visit_expr(expr, coverage);
+            }
+            if let Some(expr) = end {
+                visit_expr(expr, coverage);
+            }
+            if let Some(expr) = step {
+                visit_expr(expr, coverage);
+            }
         }
         Expr::Member { object, .. } => {
             coverage.member_access = true;

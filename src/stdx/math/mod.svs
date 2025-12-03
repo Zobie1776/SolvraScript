@@ -1,0 +1,81 @@
+//==================================================
+// File: stdx/math/mod.svs
+// Goal: Compatibility wrapper for stdx/math.svs facade
+//==================================================
+
+import "../math.svs" as math;
+
+// Constants
+export let PI = math.PI;
+export let TAU = math.TAU;
+export let E = math.E;
+export let SQRT2 = math.SQRT2;
+export let SQRT1_2 = math.SQRT1_2;
+export let LN2 = math.LN2;
+export let LN10 = math.LN10;
+export let LOG2E = math.LOG2E;
+export let LOG10E = math.LOG10E;
+export let INF = math.INF;
+export let NEG_INF = math.NEG_INF;
+export let NAN = math.NAN;
+export let EPSILON = math.EPSILON;
+export let MAX = math.MAX;
+export let MIN_POSITIVE = math.MIN_POSITIVE;
+
+// Predicates
+export let is_nan = math.is_nan;
+export let is_inf = math.is_inf;
+export let is_finite = math.is_finite;
+export let is_normal = math.is_normal;
+export let is_subnormal = math.is_subnormal;
+export let is_negative_zero = math.is_negative_zero;
+
+// Basic ops
+export let abs = math.abs;
+export let sign = math.sign;
+export let min = math.min;
+export let max = math.max;
+export let copysign = math.copysign;
+
+// Rounding
+export let floor = math.floor;
+export let ceil = math.ceil;
+export let round = math.round;
+export let trunc = math.trunc;
+export let fract = math.fract;
+export let modf = math.modf;
+export let fmod = math.fmod;
+export let remainder = math.remainder;
+
+// Power/root
+export let sqrt = math.sqrt;
+export let pow = math.pow;
+export let hypot = math.hypot;
+
+// Trigonometry
+export let sin = math.sin;
+export let cos = math.cos;
+export let tan = math.tan;
+export let asin = math.asin;
+export let acos = math.acos;
+export let atan = math.atan;
+export let atan2 = math.atan2;
+export let radians = math.radians;
+export let degrees = math.degrees;
+
+// Exponential & log
+export let exp = math.exp;
+export let exp2 = math.exp2;
+export let expm1 = math.expm1;
+export let log = math.log;
+export let log10 = math.log10;
+export let log2 = math.log2;
+export let log1p = math.log1p;
+
+// Random
+export let random_seed = math.random_seed;
+export let random = math.random;
+export let random_int = math.random_int;
+export let random_int_range = math.random_int_range;
+
+fn main() {}

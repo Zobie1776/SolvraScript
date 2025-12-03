@@ -1,0 +1,12 @@
+//==================================================
+// File: stdx/time/mod.svs
+// Goal: Expose time helpers
+//==================================================
+
+import "./time.svs" as time_ops;
+
+export let time = time_ops.time;
+export let now = time_ops.now;
+export let sleep = time_ops.sleep;
+
+fn main() {}

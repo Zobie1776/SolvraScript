@@ -1,0 +1,28 @@
+//==================================================
+// File: stdx/math/special.svs
+// Goal: Placeholder for special functions (Phase 2)
+//==================================================
+
+// Hyperbolic
+export fn sinh(x) { error("not implemented: sinh"); }
+export fn cosh(x) { error("not implemented: cosh"); }
+export fn tanh(x) { error("not implemented: tanh"); }
+export fn asinh(x) { error("not implemented: asinh"); }
+export fn acosh(x) { error("not implemented: acosh"); }
+export fn atanh(x) { error("not implemented: atanh"); }
+
+// Misc
+export fn cbrt(x) { error("not implemented: cbrt"); }
+export fn factorial(n) { error("not implemented: factorial"); }
+export fn gamma(x) { error("not implemented: gamma"); }
+export fn lgamma(x) { error("not implemented: lgamma"); }
+export fn erf(x) { error("not implemented: erf"); }
+export fn erfc(x) { error("not implemented: erfc"); }
+export fn comb(n, k) { error("not implemented: comb"); }
+export fn perm(n, k) { error("not implemented: perm"); }
+
+// @TODO[math-special]: Implement with deterministic kernels in Phase 2.
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

@@ -1,0 +1,6 @@
+// SolvraScript standard library: input/output helpers (stdx mirror)
+
+export fn print(value = null) { return legacy_io_print(value); }
+export fn println(value = null) { return legacy_io_println(value); }
+export fn read(prompt = null) { return legacy_io_input(prompt); }
+export fn sleep(milliseconds = 0) { return legacy_io_sleep(milliseconds); }

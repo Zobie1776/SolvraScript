@@ -1,0 +1,50 @@
+//==================================================
+// File: path_test.svs
+// Goal: Validate stdx path helpers
+//==================================================
+
+import "../src/stdx/math.svs" as math;
+import "../src/stdx/core.svs" as core;
+import "../src/stdx/string.svs" as string;
+import "../src/stdx/path.svs" as path;
+import "../src/stdx/datetime.svs" as dt;
+import "../src/stdx/random.svs" as rnd;
+import "../src/stdx/fs.svs" as fs;
+
+fn run() {
+    let joined = path.join("logs", "app.txt");
+    let parts = path.split("/tmp/demo.txt");
+    let normalized = path.normalize("logs/./2025/../2026/output.txt");
+    let normalized_abs = path.normalize("/tmp//logs/../output/");
+    let normalized_root = path.normalize("/");
+    let normalized_empty = path.normalize("");
+    let normalized_parents = path.normalize("../../a/./b");
+    let split_complex = path.split("//var///logs/app");
+    let name = path.filename(joined);
+    let root_name = path.filename("/");
+    let rel_name = path.filename("logs/archive.tar");
+    let dir = path.dirname("/tmp/demo.txt");
+    let rel_dir = path.dirname("logs/archive.tar");
+    let root_dir = path.dirname("/");
+    let joined_ok = joined != null;
+    let split_ok = len(parts) == 2;
+    let normalized_ok = normalized == "logs/2026/output.txt";
+    let normalized_abs_ok = normalized_abs == "/tmp/output";
+    let normalized_root_ok = normalized_root == "/";
+    let normalized_empty_ok = normalized_empty == ".";
+    let normalized_parents_ok = normalized_parents == "../../a/b";
+    let split_complex_ok = len(split_complex) == 3 && split_complex[0] == "var" && split_complex[2] == "app";
+    let filename_ok = name == "app.txt";
+    let filename_root_ok = root_name == "";
+    let filename_rel_ok = rel_name == "archive.tar";
+    let dirname_ok = dir == "/tmp";
+    let dirname_rel_ok = rel_dir == "logs";
+    let dirname_root_ok = root_dir == "/";
+    return joined_ok && split_ok && normalized_ok && normalized_abs_ok && normalized_root_ok && normalized_empty_ok && normalized_parents_ok && split_complex_ok && filename_ok && filename_root_ok && filename_rel_ok && dirname_ok && dirname_rel_ok && dirname_root_ok;
+}
+
+run();
+
+//==================================================
+// End of file
+//==================================================

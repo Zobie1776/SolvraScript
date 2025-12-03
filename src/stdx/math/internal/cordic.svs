@@ -1,0 +1,14 @@
+//==================================================
+// File: stdx/math/internal/cordic.svs
+// Goal: CORDIC kernels (Phase 3 placeholder)
+//==================================================
+
+// @TODO[math-cordic]: Implement deterministic CORDIC rotation/ vectoring.
+
+fn cordic_placeholder() {
+    error("CORDIC not implemented");
+}
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

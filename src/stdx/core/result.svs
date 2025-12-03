@@ -1,0 +1,60 @@
+/// SolvraScript Result module mirroring Rust’s Result for deterministic error handling.
+///
+/// Examples:
+/// ```
+/// let value = result.Ok(5);
+/// if result.is_ok(value) {
+///     return result.unwrap_or(value, 0);
+/// }
+/// ```
+/// @meta:module(name="result")
+/// @meta:category("std")
+/// @meta:stability("stable")
+/// @meta:since("0.1.0")
+/// @meta:deterministic(true)
+
+fn make_ok(value) {
+    return { tag: "Ok", value: value, error: null };
+}
+
+fn make_err(message) {
+    return { tag: "Err", value: null, error: message };
+}
+
+/// Creates a Result that contains a success value.
+export fn Ok(value) {
+    return make_ok(value);
+}
+
+/// Creates a Result that contains an error payload.
+export fn Err(message) {
+    return make_err(message);
+}
+
+/// Alias of [`Ok`] retained for compatibility.
+export fn ok(value) {
+    return make_ok(value);
+}
+
+/// Alias of [`Err`] retained for compatibility.
+export fn err(message) {
+    return make_err(message);
+}
+
+/// Returns true when the result represents success.
+export fn is_ok(res) {
+    return res != null && res.tag == "Ok";
+}
+
+/// Returns true when the result represents failure.
+export fn is_err(res) {
+    return res == null || res.tag == "Err";
+}
+
+/// Extracts the success value or returns `fallback`.
+export fn unwrap_or(res, fallback) {
+    if (is_ok(res)) {
+        return res.value;
+    }
+    return fallback;
+}

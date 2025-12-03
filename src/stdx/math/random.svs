@@ -1,0 +1,55 @@
+//==================================================
+// File: stdx/math/random.svs
+// Goal: Deterministic PRNG (LCG placeholder for PCG rollout)
+//==================================================
+
+let mut _rng_state = 223344;
+let _rng_modulus = 4294967296; // 2^32
+
+fn _lcg_next() {
+    _rng_state = (1103515245 * _rng_state + 12345) % _rng_modulus;
+    return _rng_state;
+}
+
+// Seed the generator with a deterministic 32-bit value.
+export fn random_seed(seed) {
+    let base = seed % _rng_modulus;
+    if (base < 0) {
+        _rng_state = base + _rng_modulus;
+    } else {
+        _rng_state = base;
+    }
+}
+
+// Uniform float in [0, 1)
+export fn random() {
+    let next = _lcg_next();
+    return next / (_rng_modulus * 1.0);
+}
+
+// Uniform int in [0, max]
+export fn random_int(max) {
+    if (max <= 0) {
+        return 0;
+    }
+    let span = max + 1;
+    return _lcg_next() % span;
+}
+
+// Uniform int in [min, max]
+export fn random_int_range(min, max) {
+    if (max < min) {
+        let tmp = min;
+        min = max;
+        max = tmp;
+    }
+    let span = max - min + 1;
+    if (span <= 0) {
+        return min;
+    }
+    return min + (_lcg_next() % span);
+}
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

@@ -1,0 +1,23 @@
+//==============================================
+// File: src/stdx/random.svs
+// Author: Codex
+// License: Duality Public License (DPL v1.0)
+// Goal: Deterministic random facade
+// Objective: Provide a stable entrypoint for PRNG helpers backed by math/random
+//==============================================
+
+import "./math/random.svs" as math_random;
+
+export fn random_seed(seed) { return math_random.random_seed(seed); }
+
+export fn random() { return math_random.random(); }
+
+export fn random_int(max) { return math_random.random_int(max); }
+
+export fn random_int_range(min, max) { return math_random.random_int_range(min, max); }
+
+fn main() {}
+
+//==============================================
+// End of file
+//==============================================

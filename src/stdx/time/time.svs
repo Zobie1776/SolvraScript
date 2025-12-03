@@ -1,0 +1,5 @@
+// stdx time helpers (legacy bridge)
+
+export fn time() { return legacy_time_time(); }
+export fn now() { return legacy_time_now(); }
+export fn sleep(milliseconds = 0) { return legacy_time_sleep(milliseconds); }

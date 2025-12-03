@@ -1,0 +1,18 @@
+//==================================================
+// File: stdx/crypto/mod.svs
+// Goal: Expose cryptographic hash helpers
+//==================================================
+
+import "./hash.svs" as hash;
+
+export fn sha256(data) { return hash.sha256(data); }
+export fn sha256_bytes(data) { return hash.sha256_bytes(data); }
+export fn sha512(data) { return hash.sha512(data); }
+export fn sha512_bytes(data) { return hash.sha512_bytes(data); }
+export fn blake3(data) { return hash.blake3(data); }
+export fn blake3_bytes(data) { return hash.blake3_bytes(data); }
+export fn hmac_sha256(key, message) { return hash.hmac_sha256(key, message); }
+export fn hmac_sha512(key, message) { return hash.hmac_sha512(key, message); }
+export fn verify_hmac(expected, key, message, algo) { return hash.verify_hmac(expected, key, message, algo); }
+export fn bytes_to_hex(bytes) { return hash.bytes_to_hex(bytes); }
+export fn constant_time_compare(a, b) { return hash.constant_time_compare(a, b); }

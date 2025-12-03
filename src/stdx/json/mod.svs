@@ -1,0 +1,11 @@
+//==================================================
+// File: stdx/json/mod.svs
+// Goal: Expose JSON helpers
+//==================================================
+
+import "./json.svs" as json_ops;
+
+export let stringify = json_ops.stringify;
+export let parse = json_ops.parse;
+
+fn main() {}

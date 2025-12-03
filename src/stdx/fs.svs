@@ -1,0 +1,24 @@
+//==============================================
+// File: src/stdx/fs.svs
+// Author: Codex
+// License: Duality Public License (DPL v1.0)
+// Goal: Facade for filesystem helpers
+// Objective: Surface deterministic fs utilities for tests and stdx consumers
+//==============================================
+
+import "./fs/mod.svs" as fs_mod;
+
+export let open_file = fs_mod.open_file;
+export let read_file = fs_mod.read_file;
+export let write_file = fs_mod.write_file;
+export let close_file = fs_mod.close_file;
+export let fs_exists = fs_mod.fs_exists;
+export let fs_ls = fs_mod.fs_ls;
+export let path_join = fs_mod.path_join;
+export let path_home_dir = fs_mod.path_home_dir;
+
+fn main() {}
+
+//==============================================
+// End of file
+//==============================================

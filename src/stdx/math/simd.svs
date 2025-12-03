@@ -1,0 +1,13 @@
+//==================================================
+// File: stdx/math/simd.svs
+// Goal: SIMD math placeholders (Phase 4 scaffolding)
+//==================================================
+
+export fn add_vectors(a, b) { error("not implemented: simd.add_vectors"); }
+export fn mul_vectors(a, b) { error("not implemented: simd.mul_vectors"); }
+
+// @TODO[math-simd]: Provide deterministic vector lanes when backend lands.
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

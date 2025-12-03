@@ -1,0 +1,105 @@
+//==================================================
+// File: stdx/math/transcendental.svs
+// Goal: Exponential, logarithmic, and power helpers
+//==================================================
+
+fn __debug_trace(name, x) {
+    print("[math-call]", name, "input:", x);
+}
+
+import "./core.svs" as core;
+
+// Exponentials
+export fn exp(x) {
+    __debug_trace("exp", x);
+    return legacy_math_pow(core.E, x);
+}
+
+export fn exp2(x) {
+    __debug_trace("exp2", x);
+    return legacy_math_pow(2.0, x);
+}
+
+export fn expm1(x) {
+    __debug_trace("expm1", x);
+    let ax = core.abs(x);
+    if (ax < 0.00001) {
+        return x + (x * x) / 2;
+    }
+    return exp(x) - 1.0;
+}
+
+// Logarithms
+export fn log(x) {
+    __debug_trace("log", x);
+    if (x <= 0 || core.is_nan(x)) {
+        return core.NAN;
+    }
+
+    // Newton-Raphson solve for ln(x)
+    let mut guess = 0.0;
+    let mut iter = 0;
+    while (iter < 25) {
+        let e = exp(guess);
+        let delta = (e - x) / e;
+        guess = guess - delta;
+        if (core.abs(delta) < 0.000000000001) {
+            break;
+        }
+        iter = iter + 1;
+    }
+    return guess;
+}
+
+export fn log10(x) {
+    __debug_trace("log10", x);
+    return log(x) / core.LN10;
+}
+
+export fn log2(x) {
+    __debug_trace("log2", x);
+    return log(x) / core.LN2;
+}
+
+export fn log1p(x) {
+    __debug_trace("log1p", x);
+    let ax = core.abs(x);
+    if (ax < 0.00001) {
+        return x - (x * x) / 2 + (x * x * x) / 3;
+    }
+    return log(1.0 + x);
+}
+
+// Power and root
+export fn sqrt(x) {
+    __debug_trace("sqrt", x);
+    if (x < 0) {
+        return core.NAN;
+    }
+    return legacy_math_sqrt(x);
+}
+
+export fn pow(x, y) {
+    __debug_trace("pow", [x, y]);
+    if (core.is_nan(x) || core.is_nan(y)) {
+        return core.NAN;
+    }
+    return legacy_math_pow(x, y);
+}
+
+export fn hypot(x, y) {
+    __debug_trace("hypot", [x, y]);
+    let ax = core.abs(x);
+    let ay = core.abs(y);
+    let hi = core.max(ax, ay);
+    let lo = core.min(ax, ay);
+    if (hi == 0) {
+        return 0.0;
+    }
+    let ratio = lo / hi;
+    return sqrt(hi * hi * (1 + ratio * ratio));
+}
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

@@ -1,0 +1,12 @@
+//==================================================
+// File: stdx/math/internal/tables.svs
+// Goal: Lookup tables (Phase 3 placeholder)
+//==================================================
+
+// @TODO[math-tables]: Populate with precomputed constants for fast paths.
+
+export let EMPTY_TABLE = [];
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

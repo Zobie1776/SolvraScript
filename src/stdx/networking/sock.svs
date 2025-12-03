@@ -1,0 +1,407 @@
+//=====================================================
+// File: sock.svs
+//=====================================================
+// Author: Zachariah Obie
+// License: Apache License 2.0
+// Goal: Provide low-level TCP/UDP socket operations for custom network protocols
+// Objective: Enable TCP client/server, UDP datagram exchange, and DNS resolution
+//            for applications that need direct socket access beyond HTTP.
+//=====================================================
+
+//=====================================================
+// Import & Modules
+//=====================================================
+// No imports - this is a base networking module
+
+//=====================================================
+// Section 1.0: DNS Resolution
+//=====================================================
+
+fn dns_resolve(hostname) {
+    //  Resolve hostname to IP address via DNS
+    //  hostname: string - Domain name to resolve (e.g., "example.com")
+    //  Returns: string - IP address (IPv4 or IPv6)
+
+    //  Call host bridge for DNS resolution
+    //  Results are cached at host level (5 minute TTL)
+    return __host_net_dns_resolve(hostname);
+}
+
+/*---------------------------------------------------------------------------
+
+DNS Resolution:
+Converts human-readable domain names to IP addresses. Required before
+making direct TCP/UDP connections.
+
+Caching:
+- DNS results cached at host level (5 min TTL)
+- Reduces latency for repeated lookups
+- Cache invalidated on error
+
+Supports:
+- IPv4 (A records)
+- IPv6 (AAAA records)
+- Returns first available result
+
+Errors:
+- ResolutionFailed: DNS query failed or hostname not found
+
+--------------------------------------------------------------------------*/
+
+//=====================================================
+// Section 2.0: TCP Client Operations
+//=====================================================
+
+fn tcp_connect(host, port, timeout_ms) {
+    //  Connect to TCP server
+    //  host: string - Hostname or IP address
+    //  port: int - Port number (1-65535)
+    //  timeout_ms: int - Connection timeout in milliseconds
+    //  Returns: Socket - {fd: int, remote_host: string, remote_port: int}
+
+    //  Resolve hostname if needed
+    let ip = host;
+    if (!is_ip_address(host)) {
+        ip = dns_resolve(host);
+    }
+
+    //  Call host bridge to establish connection
+    let fd = __host_net_tcp_connect(ip, port, timeout_ms);
+
+    return {
+        "fd": fd,
+        "remote_host": ip,
+        "remote_port": port,
+        "local_port": 0  //  Ephemeral port assigned by OS
+    };
+}
+
+fn tcp_send(socket, data) {
+    //  Send data over TCP socket
+    //  socket: Socket - Connected socket
+    //  data: bytes - Data to send
+    //  Returns: int - Number of bytes sent
+
+    return __host_net_tcp_send(socket["fd"], data);
+}
+
+fn tcp_recv(socket, max_bytes, timeout_ms) {
+    //  Receive data from TCP socket
+    //  socket: Socket - Connected socket
+    //  max_bytes: int - Maximum bytes to receive
+    //  timeout_ms: int - Receive timeout in milliseconds
+    //  Returns: bytes - Received data (may be less than max_bytes)
+
+    return __host_net_tcp_recv(socket["fd"], max_bytes, timeout_ms);
+}
+
+fn tcp_close(socket) {
+    //  Close TCP socket
+    //  socket: Socket - Socket to close
+
+    __host_net_tcp_close(socket["fd"]);
+}
+
+/*---------------------------------------------------------------------------
+
+TCP Client Operations:
+TCP (Transmission Control Protocol) provides reliable, ordered, stream-based
+communication. Data is guaranteed to arrive in order without loss.
+
+Connection establishment:
+1. DNS resolution (if hostname provided)
+2. TCP three-way handshake (SYN, SYN-ACK, ACK)
+3. Socket ready for bidirectional communication
+
+Send/Receive:
+- Data sent/received as byte streams
+- No message boundaries (application must frame messages)
+- Send may block if send buffer is full
+- Receive returns when data available (may be partial)
+
+Errors:
+- ConnectionFailed: Could not connect to server
+- SendFailed: Send operation failed (connection lost)
+- RecvFailed: Receive operation failed
+- TimeoutError: Operation exceeded timeout
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 3.0: TCP Server Operations
+//=====================================================
+
+fn tcp_listen(port, backlog) {
+    //  Create TCP server socket and start listening
+    //  port: int - Port to bind (1024-65535 for non-privileged)
+    //  backlog: int - Maximum pending connections queue
+    //  Returns: ServerSocket - {fd: int, port: int}
+
+    let fd = __host_net_tcp_listen(port, backlog);
+
+    return {
+        "fd": fd,
+        "port": port
+    };
+}
+
+fn tcp_accept(server, timeout_ms) {
+    //  Accept incoming TCP connection
+    //  server: ServerSocket - Listening server socket
+    //  timeout_ms: int - Accept timeout in milliseconds
+    //  Returns: Socket - Connected client socket
+
+    let result = __host_net_tcp_accept(server["fd"], timeout_ms);
+
+    return {
+        "fd": result["client_fd"],
+        "remote_host": result["remote_addr"],
+        "remote_port": result["remote_port"],
+        "local_port": server["port"]
+    };
+}
+
+/*---------------------------------------------------------------------------
+
+TCP Server Operations:
+TCP servers listen for incoming connections on a specified port.
+
+Server lifecycle:
+1. Create and bind socket to port (tcp_listen)
+2. Wait for incoming connections (tcp_accept)
+3. Handle client in separate context
+4. Close client socket when done
+5. Repeat from step 2
+
+Backlog:
+- Maximum number of pending connections
+- OS maintains queue of SYN requests
+- Common values: 128, 512, 1024
+
+Errors:
+- BindFailed: Could not bind to port
+- PortInUse: Port already in use by another process
+- TimeoutError: No connection within timeout
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 4.0: UDP Operations
+//=====================================================
+
+fn udp_bind(port) {
+    //  Create UDP socket bound to port
+    //  port: int - Port to bind (0 for random ephemeral port)
+    //  Returns: UDPSocket - {fd: int, port: int}
+
+    let fd = __host_net_udp_bind(port);
+
+    return {
+        "fd": fd,
+        "port": port
+    };
+}
+
+fn udp_send_to(socket, data, host, port) {
+    //  Send UDP datagram to specific host and port
+    //  socket: UDPSocket - UDP socket
+    //  data: bytes - Data to send
+    //  host: string - Target hostname or IP
+    //  port: int - Target port
+    //  Returns: int - Number of bytes sent
+
+    //  Resolve hostname if needed
+    let ip = host;
+    if (!is_ip_address(host)) {
+        ip = dns_resolve(host);
+    }
+
+    return __host_net_udp_send_to(socket["fd"], data, ip, port);
+}
+
+fn udp_recv_from(socket, max_bytes, timeout_ms) {
+    //  Receive UDP datagram
+    //  socket: UDPSocket - UDP socket
+    //  max_bytes: int - Maximum bytes to receive
+    //  timeout_ms: int - Receive timeout in milliseconds
+    //  Returns: {data: bytes, host: string, port: int}
+
+    return __host_net_udp_recv_from(socket["fd"], max_bytes, timeout_ms);
+}
+
+/*---------------------------------------------------------------------------
+
+UDP Operations:
+UDP (User Datagram Protocol) provides unreliable, unordered, message-based
+communication. Datagrams may arrive out-of-order, duplicated, or not at all.
+
+Characteristics:
+- Connectionless (no handshake)
+- Message boundaries preserved
+- Lower overhead than TCP
+- No delivery guarantees
+
+Use UDP when:
+- Low latency is critical
+- Occasional packet loss is acceptable
+- Broadcasting or multicasting
+- Real-time applications (games, VoIP, video streaming)
+
+Datagram size:
+- Maximum: 65,507 bytes (theoretical)
+- Recommended: < 1,472 bytes (avoid IP fragmentation)
+- Larger datagrams may be fragmented or dropped
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 5.0: Utility Functions
+//=====================================================
+
+fn is_ip_address(host) {
+    //  Check if string is an IP address (IPv4 or IPv6)
+    //  host: string - String to check
+    //  Returns: bool - True if valid IP address
+
+    //  Simple heuristic: contains dots (IPv4) or colons (IPv6)
+    //  For production, use proper IP parsing
+    return contains(host, ".") || contains(host, ":");
+}
+
+/*---------------------------------------------------------------------------
+
+Utility Functions:
+Helper functions for socket operations.
+
+is_ip_address():
+- Simple heuristic for detecting IP addresses
+- Avoids unnecessary DNS lookups
+- Not a validation function (host bridge validates)
+
+For production, consider:
+- Regex-based IP validation
+- IPv4 vs IPv6 detection
+- CIDR notation support
+
+*/---------------------------------------------------------------------------
+
+//=====================================================
+// Section 6.0: Mock Host Bridge (Development Only)
+//=====================================================
+
+fn __host_net_dns_resolve(hostname) {
+    //  MOCK IMPLEMENTATION
+    println("[MOCK] DNS resolve: " + hostname);
+    return "127.0.0.1";
+}
+
+fn __host_net_tcp_connect(host, port, timeout_ms) {
+    //  MOCK IMPLEMENTATION
+    println("[MOCK] TCP connect to " + host + ":" + str(port));
+    return 42;  //  Mock file descriptor
+}
+
+fn __host_net_tcp_send(fd, data) {
+    //  MOCK IMPLEMENTATION
+    println("[MOCK] TCP send " + str(len(data)) + " bytes on fd=" + str(fd));
+    return len(data);
+}
+
+fn __host_net_tcp_recv(fd, max_bytes, timeout_ms) {
+    //  MOCK IMPLEMENTATION
+    println("[MOCK] TCP recv on fd=" + str(fd));
+    return "mock_tcp_data";
+}
+
+fn __host_net_tcp_close(fd) {
+    //  MOCK IMPLEMENTATION
+    println("[MOCK] TCP close fd=" + str(fd));
+}
+
+fn __host_net_tcp_listen(port, backlog) {
+    //  MOCK IMPLEMENTATION
+    println("[MOCK] TCP listen on port " + str(port));
+    return 43;  //  Mock server fd
+}
+
+fn __host_net_tcp_accept(fd, timeout_ms) {
+    //  MOCK IMPLEMENTATION
+    println("[MOCK] TCP accept on fd=" + str(fd));
+    return {
+        "client_fd": 44,
+        "remote_addr": "127.0.0.1",
+        "remote_port": 12345
+    };
+}
+
+fn __host_net_udp_bind(port) {
+    //  MOCK IMPLEMENTATION
+    println("[MOCK] UDP bind to port " + str(port));
+    return 45;  //  Mock UDP fd
+}
+
+fn __host_net_udp_send_to(fd, data, host, port) {
+    //  MOCK IMPLEMENTATION
+    println("[MOCK] UDP send to " + host + ":" + str(port));
+    return len(data);
+}
+
+fn __host_net_udp_recv_from(fd, max_bytes, timeout_ms) {
+    //  MOCK IMPLEMENTATION
+    println("[MOCK] UDP recv on fd=" + str(fd));
+    return {
+        "data": "mock_udp_data",
+        "host": "127.0.0.1",
+        "port": 54321
+    };
+}
+
+/*---------------------------------------------------------------------------
+
+Development Mocks:
+The __host_net_* functions above are temporary mocks for development.
+Real implementation will use tokio::net for async I/O.
+
+Host implementation details:
+- Non-blocking I/O with timeout support
+- File descriptor management
+- Error handling and propagation
+- Buffer management
+
+Sandbox integration:
+- net.tcp capability required for TCP operations
+- net.udp capability required for UDP operations
+- net.dns capability required for DNS resolution
+- Privileged ports (<1024) require net.privileged
+
+*/---------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------
+//  End of sock.svs
+//  This module provides low-level socket operations for SolvraScript networking.
+//
+//  @TODO Phase 1:
+//  - Implement proper IP address validation
+//  - Add IPv6 support throughout
+//  - Implement connection pooling
+//  - Add socket options (SO_REUSEADDR, TCP_NODELAY, etc.)
+//  - Integrate with sec/sandbox capability checks
+//
+//  @TODO Phase 2:
+//  - Unix domain sockets
+//  - Raw sockets (for custom protocols)
+//  - Multicast/broadcast support
+//  - Socket statistics and diagnostics
+//
+//  @ZNOTES:
+//  - All operations require appropriate net.* capabilities
+//  - DNS results cached at host level (5 min TTL)
+//  - TCP provides reliable, ordered delivery
+//  - UDP provides fast, unreliable delivery
+//  - Maximum concurrent sockets: 100 (configurable)
+//  - For HTTP, use <web/http> instead of raw sockets
+//---------------------------------------------------------------------------
+
+//=====================================================
+// End of file
+//=====================================================

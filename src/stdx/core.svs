@@ -1,0 +1,24 @@
+//==============================================
+// File: src/stdx/core.svs
+// Author: Codex
+// License: Duality Public License (DPL v1.0)
+// Goal: Aggregated core module exports
+// Objective: Provide a stable entrypoint for core helpers and collections
+//==============================================
+
+import "./core/mod.svs" as core_mod;
+
+export let string = core_mod.string;
+export let vector = core_mod.vector;
+export let option = core_mod.option;
+export let result = core_mod.result;
+export let map = core_mod.map;
+export let iter = core_mod.iter;
+export let vec = core_mod.vec;
+export let prelude = core_mod.prelude;
+
+fn main() {}
+
+//==============================================
+// End of file
+//==============================================

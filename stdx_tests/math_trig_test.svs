@@ -1,0 +1,40 @@
+//=====================================================
+// File: math_trig_test.svs
+// Goal: Smoke tests for stdx.math trig helpers
+//=====================================================
+
+import "../src/stdx/math.svs" as math;
+import "../src/stdx/core.svs" as core;
+import "../src/stdx/string.svs" as string;
+import "../src/stdx/path.svs" as path;
+import "../src/stdx/datetime.svs" as dt;
+import "../src/stdx/random.svs" as rnd;
+import "../src/stdx/fs.svs" as fs;
+
+let TOL_STRICT = 0.000000001;
+let TOL_LOOSE = 0.000001;
+
+fn assert_close(a, b, tol) {
+    return math.abs(a - b) <= tol;
+}
+
+fn test_basic_trig() {
+    let s0 = assert_close(math.sin(0.0), 0.0, TOL_STRICT);
+    let s90 = assert_close(math.sin(math.PI / 2), 1.0, TOL_LOOSE);
+    let c0 = assert_close(math.cos(0.0), 1.0, TOL_STRICT);
+    let t45 = assert_close(math.tan(math.PI / 4), 1.0, TOL_LOOSE);
+    return s0 && s90 && c0 && t45;
+}
+
+fn test_range_reduction() {
+    let angle = math.PI * 4 + math.PI / 2;
+    return assert_close(math.sin(angle), 1.0, TOL_LOOSE);
+}
+
+fn main() {
+    return test_basic_trig() && test_range_reduction();
+}
+
+//=====================================================
+// End of file
+//=====================================================

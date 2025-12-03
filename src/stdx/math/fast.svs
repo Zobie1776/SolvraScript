@@ -1,0 +1,15 @@
+//==================================================
+// File: stdx/math/fast.svs
+// Goal: Fast-math stubs (Phase 3 scaffolding)
+//==================================================
+
+export fn recip(x) { error("not implemented: fast.recip"); }
+export fn rsqrt(x) { error("not implemented: fast.rsqrt"); }
+export fn sin(x) { error("not implemented: fast.sin"); }
+export fn exp(x) { error("not implemented: fast.exp"); }
+
+// @TODO[math-fast]: Wire SIMD/vectorized kernels in Phase 3.
+
+//--------------------------------------------------
+// End of file
+//--------------------------------------------------

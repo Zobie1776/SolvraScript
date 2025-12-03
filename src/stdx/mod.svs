@@ -1,0 +1,17 @@
+//==============================================
+// File: stdlib/mod.svs
+// Author: Solvra Systems — Generated comment
+// Goal: Outline stdx module roadmap
+//==============================================
+// std modules
+// - core: Collection of fundamental data helpers (string, vector, option, result, iter).
+// - io: Console-friendly print/read primitives bridging legacy I/O.
+// - math: Numeric utilities (abs, min/max, trig, sqrt/pow) wrapping deterministic host ops.
+// - time: Clock helpers exposing time/now/sleep for scheduling-aware logic.
+// - fs: Filesystem helpers with path, stream, and metadata helpers backed by the host layer.
+// - json: Serialization helpers powering parse/stringify workflows.
+// - sys: Environment and type helpers that mirror legacy behavior.
+// stdx modules
+// - ai: Experimental AI helpers (tensor, model, data, bridge) under phased rollout.
+// - crypto / storage / web / cloud / gpu / devops / game / networking / quantum: Domain-specific helpers built atop host bridges.
+//==============================================

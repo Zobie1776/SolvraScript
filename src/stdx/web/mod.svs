@@ -1,0 +1,17 @@
+//==================================================
+// File: stdx/web/mod.svs
+// Goal: Expose web helpers (HTTP) from stdx
+//==================================================
+
+import "./http.svs" as http;
+
+export fn with_headers(options, headers) { return http.with_headers(options, headers); }
+export fn with_timeout(options, ms) { return http.with_timeout(options, ms); }
+export fn with_retries(options, count) { return http.with_retries(options, count); }
+
+export fn get(url, options) { return http.get(url, options); }
+export fn post(url, body, options) { return http.post(url, body, options); }
+export fn put(url, body, options) { return http.put(url, body, options); }
+export fn delete(url, options) { return http.delete(url, options); }
+export fn request(method, url, options) { return http.request(method, url, options); }
+export fn parse_json(response) { return http.parse_json(response); }

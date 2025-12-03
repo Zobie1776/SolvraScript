@@ -1,0 +1,23 @@
+//==============================================
+// File: src/stdx/string.svs
+// Author: Codex
+// License: Duality Public License (DPL v1.0)
+// Goal: Facade for string helpers
+// Objective: Re-export stdx/core/string functions from a stable entrypoint
+//==============================================
+
+import "./core/string.svs" as string_core;
+
+export fn len(value) { return string_core.len(value); }
+
+export fn to_string(value) { return string_core.to_string(value); }
+
+export fn parse_int(text, base = null) { return string_core.parse_int(text, base); }
+
+export fn parse_float(text) { return string_core.parse_float(text); }
+
+fn main() {}
+
+//==============================================
+// End of file
+//==============================================

@@ -1,0 +1,29 @@
+//==============================================
+// File: stdx/datetime/mod.svs
+// Author: Codex
+// License: Duality Public License (DPL v1.0)
+// Goal: Surface the deterministic datetime helpers
+// Objective: Keep the public API cycle-free while re-exporting implementation details
+//==============================================
+
+//==============================================
+// Import & Modules
+//==============================================
+//import "./datetime.svs" as datetime_impl;
+import "src/stdx/datetime/datetime.svs"
+
+//==============================================
+// Section 1.0 — Export Catalog
+//==============================================
+// This surface module avoids direct cycles by keeping the implementation
+// entirely internal while offering the stable datetime helpers to callers.
+export let now = datetime_impl.now;
+export let today = datetime_impl.today;
+export let format = datetime_impl.format;
+export let parse = datetime_impl.parse;
+
+fn main() {}
+
+//==============================================
+// End of file
+//==============================================

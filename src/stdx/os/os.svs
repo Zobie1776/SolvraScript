@@ -1,0 +1,18 @@
+// stdx OS helpers (env, cwd, home)
+
+fn non_empty(value) {
+    return value != null && len(value) > 0;
+}
+
+export fn env_get(key) { return legacy_sys_env_get(key); }
+export fn env_set(key, value) { return legacy_sys_env_set(key, value); }
+
+export fn cwd() {
+    let pwd = legacy_sys_env_get("PWD");
+    if (non_empty(pwd)) {
+        return pwd;
+    }
+    return legacy_fs_path_home_dir();
+}
+
+export fn home() { return legacy_fs_path_home_dir(); }

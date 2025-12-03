@@ -1,4 +1,4 @@
-#[path = "util.rs"]
+#[path = "../src/tests/util.rs"]
 mod util;
 
 use std::fs;

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use solvrascript::{
     interpreter::{Interpreter, Value},
     parser::Parser,
@@ -10,6 +12,8 @@ fn eval_source(source: &str) -> Value {
     let mut parser = Parser::new(tokens);
     let program = parser.parse().expect("parse program");
     let mut interpreter = Interpreter::new();
+    interpreter
+        .add_module_search_path(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("stdx_tests"));
     interpreter
         .eval_program(&program)
         .expect("execution")
@@ -32,7 +36,7 @@ fn import_vector_module_executes() {
 #[test]
 fn import_script_module_executes() {
     let source = r#"
-        import "tests/modules/sample_module.svs" as sample;
+        import "stdx_tests/modules/sample_module.svs" as sample;
         sample.double(21)
     "#;
     let result = eval_source(source);

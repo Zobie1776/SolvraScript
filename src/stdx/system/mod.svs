@@ -1,0 +1,13 @@
+//==================================================
+// File: stdx/system/mod.svs
+// Goal: Alias system helpers to stdx/sys
+//==================================================
+
+import "../sys/sys.svs" as sys_ops;
+
+export let bool = sys_ops.bool;
+export let type = sys_ops.type;
+export let env_get = sys_ops.env_get;
+export let env_set = sys_ops.env_set;
+
+fn main() {}

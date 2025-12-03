@@ -1,0 +1,9 @@
+// stdx IO module shim
+import "./io.svs" as io_ops;
+
+export let print = io_ops.print;
+export let println = io_ops.println;
+export let read = io_ops.read;
+export let sleep = io_ops.sleep;
+
+fn main() {}

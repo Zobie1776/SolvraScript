@@ -1,0 +1,274 @@
+//==============================================
+// File: stdx/datetime/datetime.svs
+// Author: Codex
+// License: Duality Public License (DPL v1.0)
+// Goal: Build deterministic datetime helpers
+// Objective: Provide the stdx/datetime API without introducing import cycles
+//==============================================
+
+//==============================================
+// Import & Modules
+//==============================================
+
+//==============================================
+// Section 1.0 — Constants & Helpers
+//==============================================
+//---------------------------------------------------------------------------
+// This section keeps the arithmetic helpers, token matching utilities, and
+// epoch conversions isolated so parsing and formatting can remain deterministic.
+//---------------------------------------------------------------------------
+fn seconds_per_minute() { return 60; }
+fn seconds_per_hour() { return seconds_per_minute() * 60; }
+fn seconds_per_day() { return seconds_per_hour() * 24; }
+fn days_epoch_offset() { return 719468; }
+
+fn to_integer(value) {
+    if (type(value) == "int") { return value; }
+    if (type(value) == "float") {
+        let truncated = value - (value % 1);
+        return truncated;
+    }
+    return 0;
+}
+
+fn pad(value, width) {
+    let mut text = to_string(value);
+    while (len(text) < width) { text = "0" + text; }
+    return text;
+}
+
+fn match_token(text, index, token) {
+    if (index + len(token) > len(text)) { return false; }
+    return text[index:index + len(token)] == token;
+}
+
+fn digit_value(char) {
+    if (char == "0") { return 0; }
+    if (char == "1") { return 1; }
+    if (char == "2") { return 2; }
+    if (char == "3") { return 3; }
+    if (char == "4") { return 4; }
+    if (char == "5") { return 5; }
+    if (char == "6") { return 6; }
+    if (char == "7") { return 7; }
+    if (char == "8") { return 8; }
+    if (char == "9") { return 9; }
+    return null;
+}
+
+fn parse_int_segment(text, start, length) {
+    if (start + length > len(text)) { return null; }
+    let mut value = 0;
+    let mut offset = 0;
+    while (offset < length) {
+        let digit = digit_value(text[start + offset:start + offset + 1]);
+        if (digit == null) { return null; }
+        value = value * 10 + digit;
+        offset = offset + 1;
+    }
+    return value;
+}
+
+fn normalize_datetime(value) {
+    if (type(value) == "int" || type(value) == "float") {
+        return timestamp_to_components(to_integer(value));
+    }
+    return value;
+}
+
+fn civil_from_days(day_count) {
+    let z = day_count + days_epoch_offset();
+    let mut era = z / 146097;
+    if (z < 0) { era = (z - 146096) / 146097; }
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let mut month = mp + 3;
+    if (mp >= 10) { month = mp - 9; }
+    let mut year = y;
+    if (month <= 2) { year = y + 1; }
+    return {
+        year: year,
+        month: month,
+        day: day,
+    };
+}
+
+fn timestamp_to_components(timestamp) {
+    let total_seconds = to_integer(timestamp);
+    let mut day_count = total_seconds / seconds_per_day();
+    let mut seconds_of_day = total_seconds - (day_count * seconds_per_day());
+    if (seconds_of_day < 0) {
+        seconds_of_day = seconds_of_day + seconds_per_day();
+        day_count = day_count - 1;
+    }
+    let date_parts = civil_from_days(day_count);
+    let hour = seconds_of_day / seconds_per_hour();
+    let minute = (seconds_of_day % seconds_per_hour()) / seconds_per_minute();
+    let second = seconds_of_day % seconds_per_minute();
+    return {
+        year: date_parts.year,
+        month: date_parts.month,
+        day: date_parts.day,
+        hour: hour,
+        minute: minute,
+        second: second,
+        unix: total_seconds,
+    };
+}
+
+fn start_of_day(timestamp) {
+    let components = timestamp_to_components(timestamp);
+    let mut reset = components.unix;
+    reset = reset - (components.hour * seconds_per_hour());
+    reset = reset - (components.minute * seconds_per_minute());
+    reset = reset - components.second;
+    return reset;
+}
+
+fn format_literal_segment(output, pattern, index) {
+    let mut result = output;
+    result = result + pattern[index:index + 1];
+    return result;
+}
+
+//==============================================
+// Section 2.0 — API Implementations
+//==============================================
+//---------------------------------------------------------------------------
+// Exports in this section keep the public interface deterministic and
+// pattern-driven without reaching back into stdx/datetime or creating cycles.
+//---------------------------------------------------------------------------
+export fn now() {
+    return timestamp_to_components(legacy_time_now());
+}
+
+export fn today() {
+    let base = timestamp_to_components(legacy_time_now());
+    return {
+        year: base.year,
+        month: base.month,
+        day: base.day,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        unix: start_of_day(base.unix),
+    };
+}
+
+export fn format(value, pattern) {
+    let date = normalize_datetime(value);
+    let mut idx = 0;
+    let mut output = "";
+    while (idx < len(pattern)) {
+        if (match_token(pattern, idx, "YYYY")) {
+            output = output + pad(date.year, 4);
+            idx = idx + 4;
+            continue;
+        }
+        if (match_token(pattern, idx, "MM")) {
+            output = output + pad(date.month, 2);
+            idx = idx + 2;
+            continue;
+        }
+        if (match_token(pattern, idx, "DD")) {
+            output = output + pad(date.day, 2);
+            idx = idx + 2;
+            continue;
+        }
+        if (match_token(pattern, idx, "HH")) {
+            output = output + pad(date.hour, 2);
+            idx = idx + 2;
+            continue;
+        }
+        if (match_token(pattern, idx, "mm")) {
+            output = output + pad(date.minute, 2);
+            idx = idx + 2;
+            continue;
+        }
+        if (match_token(pattern, idx, "ss")) {
+            output = output + pad(date.second, 2);
+            idx = idx + 2;
+            continue;
+        }
+        output = format_literal_segment(output, pattern, idx);
+        idx = idx + 1;
+    }
+    return output;
+}
+
+export fn parse(text, pattern) {
+    let mut idx_pattern = 0;
+    let mut idx_text = 0;
+    let mut result = {
+        year: 1970,
+        month: 1,
+        day: 1,
+        hour: 0,
+        minute: 0,
+        second: 0,
+    };
+    while (idx_pattern < len(pattern)) {
+        if (match_token(pattern, idx_pattern, "YYYY")) {
+            let value = parse_int_segment(text, idx_text, 4);
+            if (value == null) { return null; }
+            result = { year: value, month: result.month, day: result.day, hour: result.hour, minute: result.minute, second: result.second };
+            idx_pattern = idx_pattern + 4;
+            idx_text = idx_text + 4;
+            continue;
+        }
+        if (match_token(pattern, idx_pattern, "MM")) {
+            let value = parse_int_segment(text, idx_text, 2);
+            if (value == null) { return null; }
+            result = { year: result.year, month: value, day: result.day, hour: result.hour, minute: result.minute, second: result.second };
+            idx_pattern = idx_pattern + 2;
+            idx_text = idx_text + 2;
+            continue;
+        }
+        if (match_token(pattern, idx_pattern, "DD")) {
+            let value = parse_int_segment(text, idx_text, 2);
+            if (value == null) { return null; }
+            result = { year: result.year, month: result.month, day: value, hour: result.hour, minute: result.minute, second: result.second };
+            idx_pattern = idx_pattern + 2;
+            idx_text = idx_text + 2;
+            continue;
+        }
+        if (match_token(pattern, idx_pattern, "HH")) {
+            let value = parse_int_segment(text, idx_text, 2);
+            if (value == null) { return null; }
+            result = { year: result.year, month: result.month, day: result.day, hour: value, minute: result.minute, second: result.second };
+            idx_pattern = idx_pattern + 2;
+            idx_text = idx_text + 2;
+            continue;
+        }
+        if (match_token(pattern, idx_pattern, "mm")) {
+            let value = parse_int_segment(text, idx_text, 2);
+            if (value == null) { return null; }
+            result = { year: result.year, month: result.month, day: result.day, hour: result.hour, minute: value, second: result.second };
+            idx_pattern = idx_pattern + 2;
+            idx_text = idx_text + 2;
+            continue;
+        }
+        if (match_token(pattern, idx_pattern, "ss")) {
+            let value = parse_int_segment(text, idx_text, 2);
+            if (value == null) { return null; }
+            result = { year: result.year, month: result.month, day: result.day, hour: result.hour, minute: result.minute, second: value };
+            idx_pattern = idx_pattern + 2;
+            idx_text = idx_text + 2;
+            continue;
+        }
+        if (idx_text >= len(text)) { return null; }
+        if (text[idx_text:idx_text + 1] != pattern[idx_pattern:idx_pattern + 1]) { return null; }
+        idx_pattern = idx_pattern + 1;
+        idx_text = idx_text + 1;
+    }
+    if (idx_text != len(text)) { return null; }
+    return result;
+}
+
+//==============================================
+// End of file
+//==============================================

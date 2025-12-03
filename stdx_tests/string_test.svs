@@ -1,0 +1,32 @@
+//==================================================
+// File: string_test.svs
+// Goal: Validate stdx string helpers for len/parse/to_string
+//==================================================
+
+//==================================================
+// Section 1.0 - Scenario
+//==================================================
+// @TODO[StdlibPhase2]: Extend assertions once format/replace helpers land.
+// @ZNOTE[StdlibTest]: Uses trimmed parsing to mirror interpreter semantics.
+
+import "../src/stdx/math.svs" as math;
+import "../src/stdx/core.svs" as core;
+import "../src/stdx/string.svs" as string;
+import "../src/stdx/path.svs" as path;
+import "../src/stdx/datetime.svs" as dt;
+import "../src/stdx/random.svs" as rnd;
+import "../src/stdx/fs.svs" as fs;
+
+fn run() {
+    let sample = " 42 ";
+    let parsed = string.parse_int(sample, 10);
+    let formatted = string.to_string(parsed);
+    let length_ok = string.len("hello") == 5;
+    return length_ok && parsed == 42 && formatted == "42";
+}
+
+run();
+
+//==================================================
+// End of file
+//==================================================
